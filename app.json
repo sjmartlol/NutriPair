@@ -1,0 +1,26 @@
+{
+  "expo": {
+    "name": "NutriPair",
+    "slug": "NutriPair",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/icon.png",
+    "scheme": "nutripair",
+    "platforms": ["ios", "android"],
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.nutripair.app",
+      "infoPlist": {
+        "NSCameraUsageDescription": "NutriPair needs camera access to scan food barcodes"
+      }
+    },
+    "plugins": [
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "NutriPair needs camera access to scan food barcodes"
+        }
+      ]
+    ]
+  }
+}
