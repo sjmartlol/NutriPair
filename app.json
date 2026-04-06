@@ -2,16 +2,20 @@
   "expo": {
     "name": "NutriPair",
     "slug": "NutriPair",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "nutripair",
-    "platforms": ["ios", "android"],
+    "platforms": [
+      "ios",
+      "android"
+    ],
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.nutripair.app",
       "infoPlist": {
-        "NSCameraUsageDescription": "NutriPair needs camera access to scan food barcodes"
+        "NSCameraUsageDescription": "NutriPair needs camera access to scan food barcodes",
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "plugins": [
@@ -21,6 +25,11 @@
           "cameraPermission": "NutriPair needs camera access to scan food barcodes"
         }
       ]
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "1ae167a7-e442-4da8-87de-3859a9b19544"
+      }
+    }
   }
 }

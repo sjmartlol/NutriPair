@@ -13,14 +13,15 @@ export async function signUp(email, password, name, calorieGoal) {
   const partnerCode = `NUTRI-${Math.floor(1000 + Math.random() * 9000)}`;
 
   await setDoc(doc(db, 'users', uid), {
-    name,
-    email,
-    calorieGoal: Number(calorieGoal),
-    partnerId: null,
-    partnerCode,
-    streak: 0,
-    createdAt: new Date().toISOString()
-  });
+      name,
+      email,
+      calorieGoal: Number(calorieGoal),
+      partnerId: null,
+      partnerCode,
+      streak: 0,
+      onboardingComplete: false,
+      createdAt: new Date().toISOString()
+    });
 
   return { uid, name, email, partnerCode };
 }

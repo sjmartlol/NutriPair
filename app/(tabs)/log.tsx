@@ -4,6 +4,7 @@ import { useState, useContext, useEffect, useRef } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, TextInput, Alert, Modal, KeyboardAvoidingView, Platform, ActivityIndicator } from 'react-native';
 import { logMeal, getTodayLog, getCustomFoods, addCustomFood } from '../../services/database';
 import { searchFoods, FoodResult } from '../../services/foodSearch';
+import { analyzeFoodPhoto } from '../../services/foodVision';
 
 const { UserContext } = require('../_layout');
 
@@ -82,6 +83,11 @@ function CreateFoodModal({ visible, onClose, onSave }: { visible: boolean; onClo
   const [fat, setFat] = useState('');
   const [serving, setServing] = useState('');
   const [saving, setSaving] = useState(false);
+  const [showFoodCamera, setShowFoodCamera] = useState(false);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [aiResults, setAiResults] = useState<any[]>([]);
+  const [showAiResults, setShowAiResults] = useState(false);
+  const cameraRef = useRef<any>(null);
 
   const isValid = name.trim() && calories.trim();
 
@@ -162,6 +168,11 @@ export default function LogMealScreen() {
   const [saving, setSaving] = useState(false);
   const [showCreateFood, setShowCreateFood] = useState(false);
   const [customFoods, setCustomFoods] = useState<any[]>([]);
+  const [showFoodCamera, setShowFoodCamera] = useState(false);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [aiResults, setAiResults] = useState<any[]>([]);
+  const [showAiResults, setShowAiResults] = useState(false);
+  const cameraRef = useRef<any>(null);
 
   // API search state
   const [apiResults, setApiResults] = useState<FoodResult[]>([]);
@@ -291,6 +302,39 @@ export default function LogMealScreen() {
     setShowScanner(true);
   };
 
+  const openFoodCamera = async () => {
+    if (!cameraPermission?.granted) {
+      const result = await requestCameraPermission();
+      if (!result.granted) {
+        Alert.alert('Camera needed', 'Please allow camera access to scan food.');
+        return;
+      }
+    }
+    setShowFoodCamera(true);
+  };
+
+  const takePhotoAndAnalyze = async () => {
+    if (!cameraRef.current || analyzing) return;
+    setAnalyzing(true);
+    try {
+      const photo = await cameraRef.current.takePictureAsync({
+        base64: true,
+        quality: 0.5,
+        exif: false,
+      });
+
+      if (!photo.base64) throw new Error('No image data');
+
+      const results = await analyzeFoodPhoto(photo.base64);
+      setAiResults(results);
+      setShowFoodCamera(false);
+      setShowAiResults(true);
+    } catch (err: any) {
+      Alert.alert('Error', err.message || 'Could not analyze photo. Try again.');
+    }
+    setAnalyzing(false);
+  };
+
   const isSearching = searchQuery.length >= 2;
 
   return (
@@ -345,27 +389,40 @@ export default function LogMealScreen() {
               </TouchableOpacity>
             )}
           </View>
-	  {/* Barcode + Create Row */}
-          <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
-            <TouchableOpacity onPress={openScanner} style={{
-              flex: 1, paddingVertical: 11, paddingHorizontal: 16,
-              borderRadius: 10, backgroundColor: '#2D2D2D',
-              flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+	  {/* Action Buttons */}
+          <View style={{ gap: 8, marginTop: 10 }}>
+            <TouchableOpacity onPress={openFoodCamera} style={{
+              paddingVertical: 14, paddingHorizontal: 16, borderRadius: 12,
+              backgroundColor: '#2D2D2D', flexDirection: 'row', alignItems: 'center',
+              justifyContent: 'center', gap: 10,
             }}>
-              <Text style={{ fontSize: 16 }}>📷</Text>
-              <Text style={{ color: 'white', fontSize: 13, fontWeight: '600' }}>Scan barcode</Text>
+              <Text style={{ fontSize: 18 }}>📸</Text>
+              <View>
+                <Text style={{ color: 'white', fontSize: 14, fontWeight: '700' }}>Snap & estimate with AI</Text>
+                <Text style={{ color: 'rgba(255,255,255,0.5)', fontSize: 11 }}>Take a photo of your food</Text>
+              </View>
             </TouchableOpacity>
-          {/* Create Custom Food Button */}
-          <TouchableOpacity onPress={() => setShowCreateFood(true)} style={{
-              flex: 1, paddingVertical: 11, paddingHorizontal: 16,
-              borderRadius: 10, borderWidth: 1.5, borderStyle: 'dashed', borderColor: '#C8C6C1',
-              flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
-            }}>
-              <Text style={{ color: '#888', fontSize: 16 }}>+</Text>
-              <Text style={{ color: '#888', fontSize: 13, fontWeight: '600' }}>Custom food</Text>
-            </TouchableOpacity>
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              <TouchableOpacity onPress={openScanner} style={{
+                flex: 1, paddingVertical: 11, paddingHorizontal: 16,
+                borderRadius: 10, borderWidth: 1.5, borderColor: '#E0DED9', backgroundColor: 'white',
+                flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+              }}>
+                <Text style={{ fontSize: 14 }}>📷</Text>
+                <Text style={{ color: '#666', fontSize: 13, fontWeight: '600' }}>Scan barcode</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => setShowCreateFood(true)} style={{
+                flex: 1, paddingVertical: 11, paddingHorizontal: 16,
+                borderRadius: 10, borderWidth: 1.5, borderStyle: 'dashed', borderColor: '#C8C6C1',
+                flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+              }}>
+                <Text style={{ color: '#888', fontSize: 14 }}>+</Text>
+                <Text style={{ color: '#888', fontSize: 13, fontWeight: '600' }}>Custom food</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
+
         {/* Search Results */}
         {isSearching ? (
           <View style={{ paddingHorizontal: 24, marginTop: 12 }}>
@@ -464,13 +521,156 @@ export default function LogMealScreen() {
         </View>
       )}
 
+      {/* AI Food Camera Modal */}
+      <Modal visible={showFoodCamera} animationType="slide">
+        <View style={{ flex: 1, backgroundColor: '#000' }}>
+          <View style={{ paddingTop: 56, paddingHorizontal: 24, paddingBottom: 16, backgroundColor: 'rgba(0,0,0,0.7)', zIndex: 10 }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Text style={{ fontSize: 20, fontWeight: '700', color: 'white' }}>Snap your food</Text>
+              <TouchableOpacity onPress={() => { setShowFoodCamera(false); setAnalyzing(false); }}>
+                <Text style={{ fontSize: 16, color: 'white', fontWeight: '600' }}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
+            <Text style={{ fontSize: 13, color: 'rgba(255,255,255,0.6)', marginTop: 4 }}>
+              Take a clear photo of your meal
+            </Text>
+          </View>
+
+          <CameraView ref={cameraRef} style={{ flex: 1 }} facing="back" />
+
+          <View style={{
+            paddingHorizontal: 24, paddingVertical: 24, paddingBottom: 48,
+            backgroundColor: 'rgba(0,0,0,0.7)', alignItems: 'center',
+          }}>
+            <TouchableOpacity onPress={takePhotoAndAnalyze} disabled={analyzing} style={{
+              width: 72, height: 72, borderRadius: 36, borderWidth: 4,
+              borderColor: 'white', backgroundColor: analyzing ? '#7BA876' : 'transparent',
+              justifyContent: 'center', alignItems: 'center',
+            }}>
+              {analyzing ? (
+                <Text style={{ color: 'white', fontSize: 12, fontWeight: '600' }}>AI...</Text>
+              ) : (
+                <View style={{ width: 56, height: 56, borderRadius: 28, backgroundColor: 'white' }} />
+              )}
+            </TouchableOpacity>
+            <Text style={{ color: 'rgba(255,255,255,0.5)', fontSize: 12, marginTop: 8 }}>
+              {analyzing ? 'Analyzing your food...' : 'Tap to capture'}
+            </Text>
+          </View>
+        </View>
+      </Modal>
+
+      {/* AI Results Modal */}
+      <Modal visible={showAiResults} transparent animationType="slide">
+        <View style={{ flex: 1, justifyContent: 'flex-end' }}>
+          <TouchableOpacity style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.35)' }} activeOpacity={1}
+            onPress={() => { setShowAiResults(false); setAiResults([]); }} />
+          <View style={{
+            backgroundColor: '#F5F5F3', borderTopLeftRadius: 20, borderTopRightRadius: 20,
+            padding: 24, paddingBottom: 40, maxHeight: '80%',
+          }}>
+            <View style={{ alignItems: 'center', marginBottom: 16 }}>
+              <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: '#D8D8D6' }} />
+            </View>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+              <Text style={{ fontSize: 20, fontWeight: '700' }}>AI Estimates</Text>
+              <TouchableOpacity onPress={() => { setShowAiResults(false); setAiResults([]); }}>
+                <Text style={{ fontSize: 18, color: '#999' }}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            <Text style={{ fontSize: 12, color: '#999', marginBottom: 16 }}>
+              Tap + to add items to your meal. Estimates may not be exact.
+            </Text>
+
+            <ScrollView style={{ maxHeight: 400 }}>
+              {aiResults.map((item, i) => {
+                const confidenceColor = item.confidence === 'high' ? '#7BA876' : item.confidence === 'medium' ? '#D4A45A' : '#D4845A';
+                const alreadyAdded = addedFoods.some(f => f.name === item.name && f.calories === item.calories);
+                return (
+                  <View key={i} style={{
+                    backgroundColor: 'white', borderRadius: 14, padding: 16, marginBottom: 8,
+                  }}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                      <View style={{ flex: 1 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                          <Text style={{ fontSize: 16, fontWeight: '600' }}>{item.name}</Text>
+                          <View style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, backgroundColor: `${confidenceColor}15` }}>
+                            <Text style={{ fontSize: 9, fontWeight: '700', color: confidenceColor, textTransform: 'uppercase' }}>
+                              {item.confidence}
+                            </Text>
+                          </View>
+                        </View>
+                        <Text style={{ fontSize: 12, color: '#999', marginTop: 4 }}>{item.serving}</Text>
+                        <View style={{ flexDirection: 'row', gap: 12, marginTop: 8 }}>
+                          <Text style={{ fontSize: 18, fontWeight: '700', color: '#2D2D2D' }}>{item.calories} cal</Text>
+                          <Text style={{ fontSize: 13, color: '#7BA876', fontWeight: '500' }}>{item.protein}g P</Text>
+                          <Text style={{ fontSize: 13, color: '#D4A45A', fontWeight: '500' }}>{item.carbs}g C</Text>
+                          <Text style={{ fontSize: 13, color: '#D4845A', fontWeight: '500' }}>{item.fat}g F</Text>
+                        </View>
+                      </View>
+                      <TouchableOpacity
+                        onPress={() => {
+                          if (!alreadyAdded) {
+                            const food = {
+                              id: `ai-${Date.now()}-${i}`,
+                              name: item.name,
+                              calories: item.calories,
+                              protein: item.protein,
+                              carbs: item.carbs,
+                              fat: item.fat,
+                              serving: item.serving,
+                            };
+                            setAddedFoods(prev => [...prev, food]);
+                          }
+                        }}
+                        style={{
+                          width: 36, height: 36, borderRadius: 10, marginLeft: 12,
+                          borderWidth: alreadyAdded ? 0 : 1.5, borderColor: '#D8D8D6',
+                          backgroundColor: alreadyAdded ? '#7BA876' : 'transparent',
+                          justifyContent: 'center', alignItems: 'center',
+                        }}
+                      >
+                        <Text style={{ color: alreadyAdded ? 'white' : '#999', fontSize: 18, fontWeight: '300' }}>
+                          {alreadyAdded ? '✓' : '+'}
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                );
+              })}
+            </ScrollView>
+
+            <TouchableOpacity onPress={() => {
+              const newFoods = aiResults.filter(item => !addedFoods.some(f => f.name === item.name && f.calories === item.calories))
+                .map((item, i) => ({
+                  id: `ai-${Date.now()}-${i}`,
+                  name: item.name,
+                  calories: item.calories,
+                  protein: item.protein,
+                  carbs: item.carbs,
+                  fat: item.fat,
+                  serving: item.serving,
+                }));
+              setAddedFoods(prev => [...prev, ...newFoods]);
+              setShowAiResults(false);
+              setAiResults([]);
+            }} style={{
+              backgroundColor: '#7BA876', padding: 14, borderRadius: 12,
+              alignItems: 'center', marginTop: 12,
+            }}>
+              <Text style={{ color: 'white', fontWeight: '600', fontSize: 15 }}>Add all items</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
       {/* Barcode Scanner Modal */}
       <Modal visible={showScanner} animationType="slide">
         <View style={{ flex: 1, backgroundColor: '#000' }}>
           <View style={{ paddingTop: 56, paddingHorizontal: 24, paddingBottom: 16, backgroundColor: 'rgba(0,0,0,0.7)', zIndex: 10 }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
               <Text style={{ fontSize: 20, fontWeight: '700', color: 'white' }}>Scan barcode</Text>
-              <TouchableOpacity onPress={() => { setShowScanner(false); setScanningBarcode(false); }}>
+              <TouchableOpacity onPress={() => { setShowScanner(false); scanLock.current = false; }}>
                 <Text style={{ fontSize: 16, color: 'white', fontWeight: '600' }}>Cancel</Text>
               </TouchableOpacity>
             </View>

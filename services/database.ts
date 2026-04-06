@@ -246,3 +246,110 @@ export async function updateMealEntry(uid: string, mealId: string, oldMeal: any,
 export async function updateUserName(uid: string, name: string) {
   await updateDoc(doc(db, 'users', uid), { name });
 }
+
+// ========== ONBOARDING ==========
+
+export async function completeOnboarding(uid: string) {
+  await updateDoc(doc(db, 'users', uid), { onboardingComplete: true });
+}
+
+// ========== WEEKLY CHALLENGES ==========
+
+export async function createChallenge(uid: string, partnerId: string, startDate: string, calorieGoal: number, partnerCalorieGoal: number, cheatDay: string, partnerCheatDay: string, autoRenew: boolean = true) {
+  const DAYS_MAP: Record<string, number> = { 'Monday': 1, 'Tuesday': 2, 'Wednesday': 3, 'Thursday': 4, 'Friday': 5, 'Saturday': 6, 'Sunday': 0 };
+
+  // Calculate end date based on cheat day (latest cheat day of the two partners)
+  const startD = new Date(startDate);
+  const startDayNum = startD.getDay(); // 0=Sun, 1=Mon, etc.
+
+  const cheatDayNum = DAYS_MAP[cheatDay];
+  const partnerCheatDayNum = DAYS_MAP[partnerCheatDay];
+
+  // Find how many days from start to each cheat day
+  const daysToCheat = (cheatDayNum - startDayNum + 7) % 7;
+  const daysToPartnerCheat = (partnerCheatDayNum - startDayNum + 7) % 7;
+  if (daysToCheat === 0) return; // Can't have cheat day on start day
+  if (daysToPartnerCheat === 0) return;
+  const daysToEnd = Math.max(daysToCheat, daysToPartnerCheat);
+
+  const endD = new Date(startD);
+  endD.setDate(endD.getDate() + daysToEnd);
+  const endDate = endD.toISOString().split('T')[0];
+
+  // Calculate number of days for budget (days before cheat day)
+  const userDays = daysToCheat;
+  const partnerDays = daysToPartnerCheat;
+
+  const challengeRef = await addDoc(collection(db, 'challenges'), {
+    createdBy: uid,
+    participants: [uid, partnerId],
+    startDate,
+    endDate,
+    goals: {
+      [uid]: { weeklyBudget: calorieGoal * userDays, dailyGoal: calorieGoal, cheatDay, totalDays: userDays },
+      [partnerId]: { weeklyBudget: partnerCalorieGoal * partnerDays, dailyGoal: partnerCalorieGoal, cheatDay: partnerCheatDay, totalDays: partnerDays },
+    },
+    autoRenew,
+    status: 'active',
+    createdAt: new Date().toISOString(),
+  });
+  return challengeRef.id;
+}
+
+export async function getActiveChallenge(uid: string) {
+  const q = query(
+    collection(db, 'challenges'),
+    where('participants', 'array-contains', uid),
+    where('status', '==', 'active')
+  );
+  const snapshot = await getDocs(q);
+  if (snapshot.empty) return null;
+
+  const doc = snapshot.docs[0];
+  return { id: doc.id, ...doc.data() };
+}
+
+export async function getChallengeProgress(uid: string, startDate: string, endDate: string) {
+  let total = 0;
+  const days = [];
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+  const today = new Date();
+
+  for (let d = new Date(start); d <= end && d <= today; d.setDate(d.getDate() + 1)) {
+    const dateStr = d.toISOString().split('T')[0];
+    const snap = await getDoc(doc(db, 'users', uid, 'dailyLogs', dateStr));
+    const cal = snap.exists() ? snap.data().totalCalories : 0;
+    total += cal;
+    days.push({
+      date: dateStr,
+      day: new Date(d).toLocaleDateString('en-US', { weekday: 'short' }),
+      calories: cal,
+      isToday: dateStr === today.toISOString().split('T')[0],
+    });
+  }
+
+  return { total, days };
+}
+
+export async function completeChallenge(challengeId: string, results: any) {
+  await updateDoc(doc(db, 'challenges', challengeId), {
+    status: 'completed',
+    results,
+    completedAt: new Date().toISOString(),
+  });
+}
+
+export async function getPastChallenges(uid: string) {
+  const q = query(
+    collection(db, 'challenges'),
+    where('participants', 'array-contains', uid),
+    where('status', '==', 'completed')
+  );
+  const snapshot = await getDocs(q);
+  return snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+}
+
+export async function toggleAutoRenew(challengeId: string, autoRenew: boolean) {
+  await updateDoc(doc(db, 'challenges', challengeId), { autoRenew });
+}

@@ -2,9 +2,11 @@ import { useEffect, useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, ActivityIndicator, ScrollView } from 'react-native';
 import { Stack } from 'expo-router';
 import { onAuthChange, getUserProfile, signIn, signUp, logOut } from '../services/auth';
-import { getTodayLog, getPresets, getDailyLogHistory, calculateStreak, getPartnerData } from '../services/database';
+import { getTodayLog, getPresets, getDailyLogHistory, calculateStreak, getPartnerData, completeOnboarding, updateGoals } from '../services/database';
 import { registerForPushNotifications } from '../services/notifications';
-
+import OnboardingScreen from './onboarding';
+import { calculateBMR, ACTIVITY_LABELS, GOAL_LABELS, type Gender, type Goal, type ActivityLevel, type BMRResult } from '../services/bmrCalculator';
+import { useRouter } from 'expo-router';
 export const UserContext = require('react').createContext(null);
 
 export default function RootLayout() {
@@ -12,6 +14,8 @@ export default function RootLayout() {
   const [profile, setProfile] = useState<any>(null);
   const [todayLog, setTodayLog] = useState<any>(null); 
   const [loading, setLoading] = useState(true);
+  const [showBMRAfterOnboarding, setShowBMRAfterOnboarding] = useState(false);
+  const router = useRouter();
 
   useEffect(() => {
     const unsubscribe = onAuthChange(async (firebaseUser: any) => {
@@ -44,14 +48,38 @@ export default function RootLayout() {
     return <LoginScreen />;
   }
 
+  if (profile && profile.onboardingComplete === false) {
+    return (
+      <OnboardingScreen onComplete={async () => {
+        await completeOnboarding(user.uid);
+        const updated = await getUserProfile(user.uid);
+        setProfile(updated);
+        setShowBMRAfterOnboarding(true);
+      }} />
+    );
+  }
+
   return (
     <UserContext.Provider value={{ user, profile, todayLog, setTodayLog, setProfile }}>
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="(tabs)" />
       </Stack>
+      {showBMRAfterOnboarding && (
+        <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: '#F5F5F3', justifyContent: 'center', alignItems: 'center', padding: 24 }}>
+          <Text style={{ fontSize: 48, marginBottom: 16 }}>🧮</Text>
+          <Text style={{ fontSize: 24, fontWeight: '700', textAlign: 'center', marginBottom: 8 }}>Set up your goals</Text>
+          <Text style={{ fontSize: 14, color: '#999', textAlign: 'center', marginBottom: 32 }}>Head to your Profile tab and tap "Calculate your ideal goals" to get personalized calorie and macro targets.</Text>
+          <TouchableOpacity onPress={() => { setShowBMRAfterOnboarding(false); router.push('/explore'); }} style={{
+            backgroundColor: '#7BA876', padding: 16, borderRadius: 14, alignItems: 'center', width: '100%',
+            shadowColor: '#7BA876', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8,
+          }}>
+            <Text style={{ color: 'white', fontWeight: '700', fontSize: 16 }}>Got it, let's go!</Text>
+          </TouchableOpacity>
+        </View>
+      )}
     </UserContext.Provider>
   );
-}
+ }
 
 function LoginScreen() {
   const [email, setEmail] = useState('');
@@ -60,7 +88,8 @@ function LoginScreen() {
   const [isSignup, setIsSignup] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-
+  const [showBMRAfterOnboarding, setShowBMRAfterOnboarding] = useState(false);
+  
   const handleSubmit = async () => {
     try {
       setError('');

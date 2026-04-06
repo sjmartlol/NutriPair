@@ -3,6 +3,7 @@ import { View, Text, ScrollView, TouchableOpacity, Modal, TextInput, Alert, Keyb
 import Svg, { Circle } from 'react-native-svg';
 import { logOut, getUserProfile } from '../../services/auth';
 import { updateGoals, getTodaysMeals, deleteMeal, updateMealEntry, getTodayLog } from '../../services/database';
+import { useRouter } from 'expo-router';
 
 const { UserContext } = require('../_layout');
 
@@ -190,6 +191,7 @@ export default function HomeScreen() {
   const profile = ctx?.profile;
   const todayLog = ctx?.todayLog;
   const user = ctx?.user;
+  const router = useRouter();
 
   const [showEditGoals, setShowEditGoals] = useState(false);
   const [todayMeals, setTodayMeals] = useState<any[]>([]);
@@ -288,7 +290,11 @@ export default function HomeScreen() {
             <MacroBar label="Carbs" current={carbs} goal={carbGoal} color="#D4A45A" />
             <MacroBar label="Fat" current={fat} goal={fatGoal} color="#D4845A" />
           </View>
-          <TouchableOpacity style={{ marginTop: 24, backgroundColor: '#7BA876', padding: 14, borderRadius: 12, alignItems: 'center', shadowColor: '#7BA876', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.3, shadowRadius: 8 }}>
+          <TouchableOpacity onPress={() => router.push('/log')} style={{
+            marginTop: 24, backgroundColor: '#7BA876', padding: 14,
+            borderRadius: 12, alignItems: 'center',
+            shadowColor: '#7BA876', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.3, shadowRadius: 8,
+          }}>
             <Text style={{ color: 'white', fontWeight: '600', fontSize: 15 }}>+ Log a meal</Text>
           </TouchableOpacity>
         </View>
