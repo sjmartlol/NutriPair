@@ -4,6 +4,13 @@ import { getActiveChallenge, createChallenge, getChallengeProgress, completeChal
 
 const { UserContext } = require('../_layout');
 
+function formatLocalDate(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
 const DAYS_OF_WEEK = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 const DAY_EMOJIS: Record<string, string> = { Monday: '1️⃣', Tuesday: '2️⃣', Wednesday: '3️⃣', Thursday: '4️⃣', Friday: '5️⃣', Saturday: '🎉', Sunday: '🌟' };
 
@@ -47,8 +54,7 @@ export default function ChallengeScreen() {
           setPartnerProgress(partP);
         }
 
-        // Auto-complete if week is over
-        const todayCheck = new Date().toISOString().split('T')[0];
+        const todayCheck = formatLocalDate(new Date());
         if (todayCheck > active.endDate && active.status === 'active') {
           const pId = active.participants.find((p: string) => p !== user.uid);
           const partP = await getChallengeProgress(pId, active.startDate, active.endDate);
@@ -66,7 +72,7 @@ export default function ChallengeScreen() {
             const dow = nextMonday.getDay();
             const offset = dow === 0 ? 1 : dow === 1 ? 0 : 8 - dow;
             nextMonday.setDate(nextMonday.getDate() + offset);
-            const nextStart = nextMonday.toISOString().split('T')[0];
+            const nextStart = formatLocalDate(nextMonday);
 
             await createChallenge(
               user.uid, pId, nextStart,
@@ -101,7 +107,7 @@ export default function ChallengeScreen() {
       const mondayOffset = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
       const monday = new Date(today);
       monday.setDate(today.getDate() - mondayOffset);
-      const startStr = monday.toISOString().split('T')[0];
+      const startStr = formatLocalDate(monday);
 
       const pData = await getPartnerData(profile.partnerId);
       const partnerGoal = pData?.calorieGoal || 2000;
@@ -334,9 +340,11 @@ export default function ChallengeScreen() {
   const partnerTotal = partnerProgress?.total || 0;
 
   const today = new Date();
-  const todayStr = today.toISOString().split('T')[0];
-  const endDateObj = new Date(challenge.endDate + 'T23:59:59');
-  const daysLeft = Math.max(0, Math.ceil((endDateObj.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)));
+  const todayStr = formatLocalDate(today);
+  const [ey, em, ed] = challenge.endDate.split('-').map(Number);
+  const todayMidnight = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const endMidnight = new Date(ey, em - 1, ed);
+  const daysLeft = Math.max(0, Math.round((endMidnight.getTime() - todayMidnight.getTime()) / (1000 * 60 * 60 * 24)));
 
   // Calculate non-cheat days consumed (exclude cheat day if it's passed)
   const cheatDayIndex = DAYS_OF_WEEK.indexOf(myCheatDayName);

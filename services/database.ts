@@ -7,7 +7,7 @@ import { db } from '../firebaseConfig';
 // ========== MEAL LOGGING ==========
 
 export async function logMeal(uid, meal) {
-  const today = new Date().toISOString().split('T')[0];
+  const today = formatLocalDate(new Date());
 
   await addDoc(collection(db, 'users', uid, 'meals'), {
     name: meal.name,
@@ -46,7 +46,7 @@ export async function logMeal(uid, meal) {
 }
 
 export async function getTodaysMeals(uid) {
-  const today = new Date().toISOString().split('T')[0];
+  const today = formatLocalDate(new Date());
   const q = query(
     collection(db, 'users', uid, 'meals'),
     where('date', '==', today),
@@ -57,7 +57,7 @@ export async function getTodaysMeals(uid) {
 }
 
 export async function getTodayLog(uid) {
-  const today = new Date().toISOString().split('T')[0];
+  const today = formatLocalDate(new Date());
   const snap = await getDoc(doc(db, 'users', uid, 'dailyLogs', today));
   if (snap.exists()) return snap.data();
   return { totalCalories: 0, totalProtein: 0, totalCarbs: 0, totalFat: 0, mealsLogged: 0 };
@@ -78,7 +78,7 @@ export async function getDailyLogHistory(uid, days = 45) {
   for (let i = 0; i < days; i++) {
     const d = new Date(today);
     d.setDate(d.getDate() - i);
-    const dateStr = d.toISOString().split('T')[0];
+    const dateStr = formatLocalDate(d);
     const snap = await getDoc(doc(db, 'users', uid, 'dailyLogs', dateStr));
     if (snap.exists()) logs[dateStr] = snap.data();
   }
@@ -91,7 +91,7 @@ export function calculateStreak(dailyLogs, calorieGoal) {
   for (let i = 0; i < 365; i++) {
     const d = new Date(today);
     d.setDate(d.getDate() - i);
-    const dateStr = d.toISOString().split('T')[0];
+    const dateStr = formatLocalDate(d);
     const log = dailyLogs[dateStr];
     if (!log) { if (i === 0) continue; break; }
     const ratio = log.totalCalories / calorieGoal;
@@ -138,7 +138,7 @@ export async function pairPartners(uid1, uid2) {
 export async function getPartnerData(partnerId) {
   const profile = await getDoc(doc(db, 'users', partnerId));
   if (!profile.exists()) return null;
-  const today = new Date().toISOString().split('T')[0];
+  const today = formatLocalDate(new Date());
   const todayLog = await getDoc(doc(db, 'users', partnerId, 'dailyLogs', today));
   const meals = await getTodaysMeals(partnerId);
   return {
@@ -192,7 +192,7 @@ export async function updateGoals(uid: string, goals: {
 // ========== DELETE/EDIT MEALS ==========
 
 export async function deleteMeal(uid: string, mealId: string, meal: any) {
-  const today = meal.date || new Date().toISOString().split('T')[0];
+  const today = meal.date || formatLocalDate(new Date());
 
   // Delete the meal document
   await deleteDoc(doc(db, 'users', uid, 'meals', mealId));
@@ -214,7 +214,7 @@ export async function deleteMeal(uid: string, mealId: string, meal: any) {
 }
 
 export async function updateMealEntry(uid: string, mealId: string, oldMeal: any, newMeal: any) {
-  const today = oldMeal.date || new Date().toISOString().split('T')[0];
+  const today = oldMeal.date || formatLocalDate(new Date());
 
   // Update the meal document
   await updateDoc(doc(db, 'users', uid, 'meals', mealId), {
@@ -255,26 +255,36 @@ export async function completeOnboarding(uid: string) {
 
 // ========== WEEKLY CHALLENGES ==========
 
+function parseLocalDate(dateStr: string): Date {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  return new Date(y, m - 1, d);
+}
+
+function formatLocalDate(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
 export async function createChallenge(uid: string, partnerId: string, startDate: string, calorieGoal: number, partnerCalorieGoal: number, cheatDay: string, partnerCheatDay: string, autoRenew: boolean = true) {
   const DAYS_MAP: Record<string, number> = { 'Monday': 1, 'Tuesday': 2, 'Wednesday': 3, 'Thursday': 4, 'Friday': 5, 'Saturday': 6, 'Sunday': 0 };
 
-  // Calculate end date based on cheat day (latest cheat day of the two partners)
-  const startD = new Date(startDate);
-  const startDayNum = startD.getDay(); // 0=Sun, 1=Mon, etc.
+  const startD = parseLocalDate(startDate);
+  const startDayNum = startD.getDay();
 
   const cheatDayNum = DAYS_MAP[cheatDay];
   const partnerCheatDayNum = DAYS_MAP[partnerCheatDay];
 
-  // Find how many days from start to each cheat day
   const daysToCheat = (cheatDayNum - startDayNum + 7) % 7;
   const daysToPartnerCheat = (partnerCheatDayNum - startDayNum + 7) % 7;
-  if (daysToCheat === 0) return; // Can't have cheat day on start day
+  if (daysToCheat === 0) return;
   if (daysToPartnerCheat === 0) return;
   const daysToEnd = Math.max(daysToCheat, daysToPartnerCheat);
 
   const endD = new Date(startD);
   endD.setDate(endD.getDate() + daysToEnd);
-  const endDate = endD.toISOString().split('T')[0];
+  const endDate = formatLocalDate(endD);
 
   // Calculate number of days for budget (days before cheat day)
   const userDays = daysToCheat;
@@ -312,12 +322,13 @@ export async function getActiveChallenge(uid: string) {
 export async function getChallengeProgress(uid: string, startDate: string, endDate: string) {
   let total = 0;
   const days = [];
-  const start = new Date(startDate);
-  const end = new Date(endDate);
+  const start = parseLocalDate(startDate);
+  const end = parseLocalDate(endDate);
   const today = new Date();
+  const todayStr = formatLocalDate(today);
 
-  for (let d = new Date(start); d <= end && d <= today; d.setDate(d.getDate() + 1)) {
-    const dateStr = d.toISOString().split('T')[0];
+  for (let d = new Date(start); d <= end && formatLocalDate(d) <= todayStr; d.setDate(d.getDate() + 1)) {
+    const dateStr = formatLocalDate(d);
     const snap = await getDoc(doc(db, 'users', uid, 'dailyLogs', dateStr));
     const cal = snap.exists() ? snap.data().totalCalories : 0;
     total += cal;
@@ -325,7 +336,7 @@ export async function getChallengeProgress(uid: string, startDate: string, endDa
       date: dateStr,
       day: new Date(d).toLocaleDateString('en-US', { weekday: 'short' }),
       calories: cal,
-      isToday: dateStr === today.toISOString().split('T')[0],
+      isToday: dateStr === todayStr,
     });
   }
 
