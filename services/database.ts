@@ -274,21 +274,15 @@ export async function createChallenge(uid: string, partnerId: string, startDate:
   const startDayNum = startD.getDay();
 
   const cheatDayNum = DAYS_MAP[cheatDay];
-  const partnerCheatDayNum = DAYS_MAP[partnerCheatDay];
 
   const daysToCheat = (cheatDayNum - startDayNum + 7) % 7;
-  const daysToPartnerCheat = (partnerCheatDayNum - startDayNum + 7) % 7;
   if (daysToCheat === 0) return;
-  if (daysToPartnerCheat === 0) return;
-  const daysToEnd = Math.max(daysToCheat, daysToPartnerCheat);
 
   const endD = new Date(startD);
-  endD.setDate(endD.getDate() + daysToEnd);
+  endD.setDate(endD.getDate() + daysToCheat);
   const endDate = formatLocalDate(endD);
 
-  // Calculate number of days for budget (days before cheat day)
-  const userDays = daysToCheat;
-  const partnerDays = daysToPartnerCheat;
+  const challengeDays = daysToCheat;
 
   const challengeRef = await addDoc(collection(db, 'challenges'), {
     createdBy: uid,
@@ -296,8 +290,8 @@ export async function createChallenge(uid: string, partnerId: string, startDate:
     startDate,
     endDate,
     goals: {
-      [uid]: { weeklyBudget: calorieGoal * userDays, dailyGoal: calorieGoal, cheatDay, totalDays: userDays },
-      [partnerId]: { weeklyBudget: partnerCalorieGoal * partnerDays, dailyGoal: partnerCalorieGoal, cheatDay: partnerCheatDay, totalDays: partnerDays },
+      [uid]: { weeklyBudget: calorieGoal * challengeDays, dailyGoal: calorieGoal, cheatDay, totalDays: challengeDays },
+      [partnerId]: { weeklyBudget: partnerCalorieGoal * challengeDays, dailyGoal: partnerCalorieGoal, cheatDay: partnerCheatDay, totalDays: challengeDays },
     },
     autoRenew,
     status: 'active',
