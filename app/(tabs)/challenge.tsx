@@ -1,6 +1,7 @@
 import { useState, useContext, useEffect } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, Alert, Modal } from 'react-native';
-import { getActiveChallenge, createChallenge, getChallengeProgress, completeChallenge, getPastChallenges, getPartnerData, toggleAutoRenew } from '../../services/database';
+import { View, Text, ScrollView, TouchableOpacity, Alert, Modal, ActivityIndicator } from 'react-native';
+import { getActiveChallenge, createChallenge, acceptChallenge, declineChallenge, getPendingChallenge, getChallengeProgress, completeChallenge, getPastChallenges, getPartnerData, toggleAutoRenew } from '../../services/database';
+import { getPartnerPushToken, sendChallengeInvite } from '../../services/notifications';
 
 const { UserContext } = require('../_layout');
 
@@ -20,12 +21,15 @@ export default function ChallengeScreen() {
   const profile = ctx?.profile;
 
   const [challenge, setChallenge] = useState<any>(null);
+  const [pendingChallenge, setPendingChallenge] = useState<any>(null);
+  const [pendingPartner, setPendingPartner] = useState<any>(null);
   const [myProgress, setMyProgress] = useState<any>(null);
   const [partnerProgress, setPartnerProgress] = useState<any>(null);
   const [partner, setPartner] = useState<any>(null);
   const [pastChallenges, setPastChallenges] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
+  const [accepting, setAccepting] = useState(false);
   const [showSetup, setShowSetup] = useState(false);
   const [myCheatDay, setMyCheatDay] = useState('Saturday');
   const [showPast, setShowPast] = useState(false);
@@ -43,6 +47,9 @@ export default function ChallengeScreen() {
       setChallenge(active);
 
       if (active) {
+        setPendingChallenge(null);
+        setPendingPartner(null);
+
         const myP = await getChallengeProgress(user.uid, active.startDate, active.endDate);
         setMyProgress(myP);
 
@@ -66,23 +73,34 @@ export default function ChallengeScreen() {
             [pId]: { total: partP.total, budget: partnerGoalsCheck.weeklyBudget, hit: partP.total <= partnerGoalsCheck.weeklyBudget, cheatEarned: Math.max(0, partnerGoalsCheck.weeklyBudget - partP.total) },
           });
 
-          // Auto-renew if enabled
+          // Auto-renew: create + accept immediately (no partner approval needed)
           if (active.autoRenew) {
             const [eY, eM, eD] = active.endDate.split('-').map(Number);
             const dayAfterEnd = new Date(eY, eM - 1, eD);
             dayAfterEnd.setDate(dayAfterEnd.getDate() + 1);
             const nextStart = formatLocalDate(dayAfterEnd);
 
-            await createChallenge(
-              user.uid, pId, nextStart,
+            const newId = await createChallenge(
+              user.uid, pId,
               myGoalsCheck.dailyGoal, partnerGoalsCheck.dailyGoal,
               myGoalsCheck.cheatDay, partnerGoalsCheck.cheatDay
             );
+            if (newId) await acceptChallenge(newId, nextStart);
           }
 
           setChallenge(null);
           await loadChallenge();
           return;
+        }
+      } else {
+        const pending = await getPendingChallenge(user.uid);
+        setPendingChallenge(pending);
+        if (pending) {
+          const pId = pending.participants.find((p: string) => p !== user.uid);
+          if (pId) {
+            const pData = await getPartnerData(pId);
+            setPendingPartner(pData);
+          }
         }
       }
 
@@ -101,19 +119,25 @@ export default function ChallengeScreen() {
     }
     setCreating(true);
     try {
-      const startStr = formatLocalDate(new Date());
-
       const pData = await getPartnerData(profile.partnerId);
       const partnerGoal = pData?.calorieGoal || 2000;
 
       await createChallenge(
-        user.uid, profile.partnerId, startStr,
+        user.uid, profile.partnerId,
         profile.calorieGoal || 2000, partnerGoal,
         myCheatDay, 'Saturday', autoRenewOption
       );
 
+      // Send push notification to partner
+      try {
+        const token = await getPartnerPushToken(profile.partnerId);
+        if (token) {
+          await sendChallengeInvite(token, profile.name || 'Your partner', myCheatDay);
+        }
+      } catch (_) {}
+
       setShowSetup(false);
-      Alert.alert('Challenge started! 🏆', `Your cheat day is ${myCheatDay}. Earn it by staying under budget!`);
+      Alert.alert('Invite sent!', `Waiting for your partner to accept. Cheat day: ${myCheatDay}`);
       await loadChallenge();
     } catch (err: any) {
       Alert.alert('Error', err.message);
@@ -121,10 +145,182 @@ export default function ChallengeScreen() {
     setCreating(false);
   };
 
+  const handleAcceptChallenge = async () => {
+    if (!pendingChallenge) return;
+    setAccepting(true);
+    try {
+      await acceptChallenge(pendingChallenge.id);
+      Alert.alert('Challenge accepted!', 'The challenge has started. Good luck!');
+      setPendingChallenge(null);
+      await loadChallenge();
+    } catch (err: any) {
+      Alert.alert('Error', err.message);
+    }
+    setAccepting(false);
+  };
+
+  const handleDeclineChallenge = async () => {
+    if (!pendingChallenge) return;
+    Alert.alert('Decline challenge?', 'Are you sure you want to decline this challenge?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Decline', style: 'destructive', onPress: async () => {
+          try {
+            await declineChallenge(pendingChallenge.id);
+            setPendingChallenge(null);
+            await loadChallenge();
+          } catch (err: any) {
+            Alert.alert('Error', err.message);
+          }
+        }
+      },
+    ]);
+  };
+
+  const handleCancelInvite = async () => {
+    if (!pendingChallenge) return;
+    Alert.alert('Cancel invite?', 'This will cancel the challenge invite you sent.', [
+      { text: 'Keep', style: 'cancel' },
+      {
+        text: 'Cancel invite', style: 'destructive', onPress: async () => {
+          try {
+            await declineChallenge(pendingChallenge.id);
+            setPendingChallenge(null);
+            await loadChallenge();
+          } catch (err: any) {
+            Alert.alert('Error', err.message);
+          }
+        }
+      },
+    ]);
+  };
+
   if (loading) {
     return (
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F5F5F3' }}>
         <Text style={{ color: '#999' }}>Loading...</Text>
+      </View>
+    );
+  }
+
+  // ===== PENDING CHALLENGE =====
+  if (!challenge && pendingChallenge) {
+    const isCreator = pendingChallenge.createdBy === user.uid;
+    const pendingGoals = pendingChallenge.goals[user.uid];
+    const otherGoals = pendingChallenge.goals[pendingChallenge.participants.find((p: string) => p !== user.uid)];
+
+    if (isCreator) {
+      return (
+        <View style={{ flex: 1, backgroundColor: '#F5F5F3' }}>
+          <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
+            <View style={{ paddingHorizontal: 24, paddingTop: 56 }}>
+              <Text style={{ fontSize: 22, fontWeight: '700' }}>Challenge</Text>
+              <Text style={{ fontSize: 13, color: '#999', marginTop: 4 }}>Invite sent</Text>
+            </View>
+
+            <View style={{ alignItems: 'center', paddingHorizontal: 24, marginTop: 60 }}>
+              <ActivityIndicator size="large" color="#7BA876" style={{ marginBottom: 20 }} />
+              <Text style={{ fontSize: 22, fontWeight: '700', textAlign: 'center' }}>
+                Waiting for {pendingPartner?.name || 'partner'}...
+              </Text>
+              <Text style={{ fontSize: 14, color: '#999', marginTop: 8, textAlign: 'center', lineHeight: 22 }}>
+                Your challenge invite has been sent. Once your partner accepts, the countdown begins!
+              </Text>
+            </View>
+
+            <View style={{
+              marginHorizontal: 24, marginTop: 32, backgroundColor: 'white',
+              borderRadius: 16, padding: 20,
+            }}>
+              <Text style={{ fontSize: 13, fontWeight: '600', color: '#999', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 14 }}>Challenge details</Text>
+              <View style={{ gap: 12 }}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                  <Text style={{ fontSize: 14, color: '#666' }}>Your cheat day</Text>
+                  <Text style={{ fontSize: 14, fontWeight: '600' }}>{pendingGoals?.cheatDay}</Text>
+                </View>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                  <Text style={{ fontSize: 14, color: '#666' }}>Your daily goal</Text>
+                  <Text style={{ fontSize: 14, fontWeight: '600' }}>{pendingGoals?.dailyGoal?.toLocaleString()} cal</Text>
+                </View>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                  <Text style={{ fontSize: 14, color: '#666' }}>Auto-renew</Text>
+                  <Text style={{ fontSize: 14, fontWeight: '600' }}>{pendingChallenge.autoRenew ? 'On' : 'Off'}</Text>
+                </View>
+              </View>
+            </View>
+
+            <View style={{ paddingHorizontal: 24, marginTop: 24 }}>
+              <TouchableOpacity onPress={handleCancelInvite} style={{
+                padding: 16, borderRadius: 14, alignItems: 'center',
+                borderWidth: 1.5, borderColor: '#E0DED9',
+              }}>
+                <Text style={{ fontWeight: '600', fontSize: 15, color: '#D4845A' }}>Cancel invite</Text>
+              </TouchableOpacity>
+            </View>
+          </ScrollView>
+        </View>
+      );
+    }
+
+    // Partner view — accept/decline
+    return (
+      <View style={{ flex: 1, backgroundColor: '#F5F5F3' }}>
+        <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
+          <View style={{ paddingHorizontal: 24, paddingTop: 56 }}>
+            <Text style={{ fontSize: 22, fontWeight: '700' }}>Challenge</Text>
+            <Text style={{ fontSize: 13, color: '#999', marginTop: 4 }}>New invite</Text>
+          </View>
+
+          <View style={{ alignItems: 'center', paddingHorizontal: 24, marginTop: 40 }}>
+            <Text style={{ fontSize: 56 }}>🏆</Text>
+            <Text style={{ fontSize: 22, fontWeight: '700', marginTop: 16, textAlign: 'center' }}>
+              {pendingPartner?.name || 'Your partner'} challenged you!
+            </Text>
+            <Text style={{ fontSize: 14, color: '#999', marginTop: 8, textAlign: 'center', lineHeight: 22 }}>
+              Accept to start the challenge. The countdown begins when you accept!
+            </Text>
+          </View>
+
+          <View style={{
+            marginHorizontal: 24, marginTop: 28, backgroundColor: 'white',
+            borderRadius: 16, padding: 20,
+          }}>
+            <Text style={{ fontSize: 13, fontWeight: '600', color: '#999', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 14 }}>Challenge details</Text>
+            <View style={{ gap: 12 }}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                <Text style={{ fontSize: 14, color: '#666' }}>Cheat day</Text>
+                <Text style={{ fontSize: 14, fontWeight: '600' }}>{otherGoals?.cheatDay}</Text>
+              </View>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                <Text style={{ fontSize: 14, color: '#666' }}>Your daily goal</Text>
+                <Text style={{ fontSize: 14, fontWeight: '600' }}>{pendingGoals?.dailyGoal?.toLocaleString()} cal</Text>
+              </View>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                <Text style={{ fontSize: 14, color: '#666' }}>Auto-renew</Text>
+                <Text style={{ fontSize: 14, fontWeight: '600' }}>{pendingChallenge.autoRenew ? 'On' : 'Off'}</Text>
+              </View>
+            </View>
+          </View>
+
+          <View style={{ paddingHorizontal: 24, marginTop: 28, gap: 10 }}>
+            <TouchableOpacity onPress={handleAcceptChallenge} disabled={accepting} style={{
+              backgroundColor: accepting ? '#A8C5A0' : '#7BA876', padding: 16,
+              borderRadius: 14, alignItems: 'center',
+              shadowColor: '#7BA876', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8,
+            }}>
+              <Text style={{ color: 'white', fontWeight: '700', fontSize: 16 }}>
+                {accepting ? 'Accepting...' : 'Accept challenge'}
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity onPress={handleDeclineChallenge} style={{
+              padding: 16, borderRadius: 14, alignItems: 'center',
+              borderWidth: 1.5, borderColor: '#E0DED9',
+            }}>
+              <Text style={{ fontWeight: '600', fontSize: 15, color: '#D4845A' }}>Decline</Text>
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
       </View>
     );
   }
@@ -197,7 +393,7 @@ export default function ChallengeScreen() {
               backgroundColor: '#7BA876', padding: 16, borderRadius: 14, alignItems: 'center',
               shadowColor: '#7BA876', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8,
             }}>
-              <Text style={{ color: 'white', fontWeight: '700', fontSize: 16 }}>Start a challenge</Text>
+              <Text style={{ color: 'white', fontWeight: '700', fontSize: 16 }}>Send a challenge invite</Text>
             </TouchableOpacity>
           </View>
 
@@ -310,7 +506,7 @@ export default function ChallengeScreen() {
                 shadowColor: '#7BA876', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8,
               }}>
                 <Text style={{ color: 'white', fontWeight: '700', fontSize: 16 }}>
-                  {creating ? 'Starting...' : `Start challenge — Cheat day: ${myCheatDay}`}
+                  {creating ? 'Sending...' : `Send invite — Cheat day: ${myCheatDay}`}
                 </Text>
               </TouchableOpacity>
             </View>

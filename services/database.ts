@@ -267,37 +267,76 @@ function formatLocalDate(date: Date): string {
   return `${y}-${m}-${d}`;
 }
 
-export async function createChallenge(uid: string, partnerId: string, startDate: string, calorieGoal: number, partnerCalorieGoal: number, cheatDay: string, partnerCheatDay: string, autoRenew: boolean = true) {
-  const DAYS_MAP: Record<string, number> = { 'Monday': 1, 'Tuesday': 2, 'Wednesday': 3, 'Thursday': 4, 'Friday': 5, 'Saturday': 6, 'Sunday': 0 };
-
-  const startD = parseLocalDate(startDate);
-  const startDayNum = startD.getDay();
-
-  const cheatDayNum = DAYS_MAP[cheatDay];
-
-  const daysToCheat = (cheatDayNum - startDayNum + 7) % 7;
-  if (daysToCheat === 0) return;
-
-  const endD = new Date(startD);
-  endD.setDate(endD.getDate() + daysToCheat);
-  const endDate = formatLocalDate(endD);
-
-  const challengeDays = daysToCheat;
-
+export async function createChallenge(uid: string, partnerId: string, calorieGoal: number, partnerCalorieGoal: number, cheatDay: string, partnerCheatDay: string, autoRenew: boolean = true) {
   const challengeRef = await addDoc(collection(db, 'challenges'), {
     createdBy: uid,
     participants: [uid, partnerId],
-    startDate,
-    endDate,
+    startDate: null,
+    endDate: null,
     goals: {
-      [uid]: { weeklyBudget: calorieGoal * challengeDays, dailyGoal: calorieGoal, cheatDay, totalDays: challengeDays },
-      [partnerId]: { weeklyBudget: partnerCalorieGoal * challengeDays, dailyGoal: partnerCalorieGoal, cheatDay: partnerCheatDay, totalDays: challengeDays },
+      [uid]: { dailyGoal: calorieGoal, cheatDay },
+      [partnerId]: { dailyGoal: partnerCalorieGoal, cheatDay: partnerCheatDay },
     },
     autoRenew,
-    status: 'active',
+    status: 'pending',
     createdAt: new Date().toISOString(),
   });
   return challengeRef.id;
+}
+
+export async function acceptChallenge(challengeId: string, overrideStartDate?: string) {
+  const DAYS_MAP: Record<string, number> = { 'Monday': 1, 'Tuesday': 2, 'Wednesday': 3, 'Thursday': 4, 'Friday': 5, 'Saturday': 6, 'Sunday': 0 };
+
+  const challengeSnap = await getDoc(doc(db, 'challenges', challengeId));
+  if (!challengeSnap.exists()) throw new Error('Challenge not found');
+
+  const challenge = challengeSnap.data();
+  const creatorId = challenge.createdBy;
+  const creatorGoals = challenge.goals[creatorId];
+
+  const startDate = overrideStartDate || formatLocalDate(new Date());
+  const startD = parseLocalDate(startDate);
+  const cheatDayNum = DAYS_MAP[creatorGoals.cheatDay];
+  const daysToCheat = (cheatDayNum - startD.getDay() + 7) % 7;
+  if (daysToCheat === 0) throw new Error('Cannot start on cheat day');
+
+  const endD = new Date(startD);
+  endD.setDate(endD.getDate() + daysToCheat);
+
+  const updatedGoals: Record<string, any> = {};
+  for (const [uid, goals] of Object.entries(challenge.goals) as [string, any][]) {
+    updatedGoals[uid] = {
+      ...goals,
+      weeklyBudget: goals.dailyGoal * daysToCheat,
+      totalDays: daysToCheat,
+    };
+  }
+
+  await updateDoc(doc(db, 'challenges', challengeId), {
+    startDate,
+    endDate: formatLocalDate(endD),
+    goals: updatedGoals,
+    status: 'active',
+    acceptedAt: new Date().toISOString(),
+  });
+}
+
+export async function declineChallenge(challengeId: string) {
+  await updateDoc(doc(db, 'challenges', challengeId), {
+    status: 'declined',
+  });
+}
+
+export async function getPendingChallenge(uid: string) {
+  const q = query(
+    collection(db, 'challenges'),
+    where('participants', 'array-contains', uid),
+    where('status', '==', 'pending')
+  );
+  const snapshot = await getDocs(q);
+  if (snapshot.empty) return null;
+  const d = snapshot.docs[0];
+  return { id: d.id, ...d.data() };
 }
 
 export async function getActiveChallenge(uid: string) {
