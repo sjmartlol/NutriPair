@@ -335,10 +335,15 @@ export default function ChallengeScreen() {
 
   const today = new Date();
   const todayStr = formatLocalDate(today);
-  const [ey, em, ed] = challenge.endDate.split('-').map(Number);
   const todayMidnight = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-  const endMidnight = new Date(ey, em - 1, ed);
-  const daysLeft = Math.max(0, Math.round((endMidnight.getTime() - todayMidnight.getTime()) / (1000 * 60 * 60 * 24)));
+
+  // Calculate the user's cheat day date from the challenge start
+  const [sy, sm, sd] = challenge.startDate.split('-').map(Number);
+  const startDateObj = new Date(sy, sm - 1, sd);
+  const cheatDayNum = DAYS_OF_WEEK.indexOf(myCheatDayName) === 6 ? 0 : DAYS_OF_WEEK.indexOf(myCheatDayName) + 1;
+  const daysToCheat = (cheatDayNum - startDateObj.getDay() + 7) % 7;
+  const myCheatDate = new Date(sy, sm - 1, sd + daysToCheat);
+  const daysLeft = Math.max(0, Math.round((myCheatDate.getTime() - todayMidnight.getTime()) / (1000 * 60 * 60 * 24)));
 
   // Calculate non-cheat days consumed (exclude cheat day if it's passed)
   const cheatDayIndex = DAYS_OF_WEEK.indexOf(myCheatDayName);
