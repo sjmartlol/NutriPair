@@ -68,11 +68,10 @@ export default function ChallengeScreen() {
 
           // Auto-renew if enabled
           if (active.autoRenew) {
-            const nextMonday = new Date();
-            const dow = nextMonday.getDay();
-            const offset = dow === 0 ? 1 : dow === 1 ? 0 : 8 - dow;
-            nextMonday.setDate(nextMonday.getDate() + offset);
-            const nextStart = formatLocalDate(nextMonday);
+            const [eY, eM, eD] = active.endDate.split('-').map(Number);
+            const dayAfterEnd = new Date(eY, eM - 1, eD);
+            dayAfterEnd.setDate(dayAfterEnd.getDate() + 1);
+            const nextStart = formatLocalDate(dayAfterEnd);
 
             await createChallenge(
               user.uid, pId, nextStart,
@@ -102,12 +101,7 @@ export default function ChallengeScreen() {
     }
     setCreating(true);
     try {
-      const today = new Date();
-      const dayOfWeek = today.getDay();
-      const mondayOffset = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
-      const monday = new Date(today);
-      monday.setDate(today.getDate() - mondayOffset);
-      const startStr = formatLocalDate(monday);
+      const startStr = formatLocalDate(new Date());
 
       const pData = await getPartnerData(profile.partnerId);
       const partnerGoal = pData?.calorieGoal || 2000;
@@ -296,7 +290,7 @@ export default function ChallengeScreen() {
               >
                 <View style={{ flex: 1 }}>
                   <Text style={{ fontSize: 14, fontWeight: '600' }}>Auto-renew weekly</Text>
-                  <Text style={{ fontSize: 11, color: '#999', marginTop: 2 }}>Start a new challenge every Monday</Text>
+                  <Text style={{ fontSize: 11, color: '#999', marginTop: 2 }}>Start a new challenge the day after this one ends</Text>
                 </View>
                 <View style={{
                   width: 44, height: 26, borderRadius: 13, padding: 2,
@@ -571,7 +565,7 @@ export default function ChallengeScreen() {
         <View style={{ flex: 1 }}>
           <Text style={{ fontSize: 14, fontWeight: '600' }}>Auto-renew weekly</Text>
           <Text style={{ fontSize: 12, color: '#999', marginTop: 2 }}>
-            Automatically start a new challenge each Monday
+            Automatically start a new challenge when this one ends
           </Text>
         </View>
         <TouchableOpacity

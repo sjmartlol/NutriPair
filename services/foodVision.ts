@@ -1,7 +1,7 @@
 // services/foodVision.ts
 // Uses Google Gemini Flash to analyze food photos
 
-const GEMINI_API_KEY = 'AIzaSyDbfu88Lrp2eSvZ8aB_ZoSeOtfPthrPMsk';
+const GEMINI_API_KEY = process.env.EXPO_PUBLIC_GEMINI_API_KEY || '';
 
 export interface FoodEstimate {
   name: string;
