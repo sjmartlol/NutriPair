@@ -1,7 +1,22 @@
 // services/foodVision.ts
 // Uses Google Gemini Flash to analyze food photos
 
-const GEMINI_API_KEY = process.env.EXPO_PUBLIC_GEMINI_API_KEY || '';
+import Constants from 'expo-constants';
+
+function getGeminiApiKey(): string {
+  const fromExtra = (
+    Constants.expoConfig?.extra as { geminiApiKey?: string } | undefined
+  )?.geminiApiKey;
+  return ((fromExtra && String(fromExtra).trim()) || (process.env.EXPO_PUBLIC_GEMINI_API_KEY || '').trim());
+}
+
+function assertGeminiKey(): void {
+  if (!getGeminiApiKey()) {
+    throw new Error(
+      'NutriPair: Food vision needs EXPO_PUBLIC_GEMINI_API_KEY. Add it to a .env file in the project root, then restart Expo (npx expo start --clear). For EAS builds, set the variable in eas.json env or EAS Secrets.'
+    );
+  }
+}
 
 export interface FoodEstimate {
   name: string;
@@ -15,8 +30,10 @@ export interface FoodEstimate {
 
 export async function analyzeFoodPhoto(base64Image: string): Promise<FoodEstimate[]> {
   try {
+    assertGeminiKey();
+    const apiKey = getGeminiApiKey();
     const response = await fetch(
-     `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`,
+     `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -67,6 +84,9 @@ Return ONLY the JSON array, no markdown, no backticks, no explanation.`
     return items.filter(item => item.name && item.calories > 0);
   } catch (error) {
     console.error('Food vision error:', error);
+    if (error instanceof Error && error.message.startsWith('NutriPair:')) {
+      throw error;
+    }
     throw new Error('Could not analyze the photo. Try again with a clearer image.');
   }
 }
