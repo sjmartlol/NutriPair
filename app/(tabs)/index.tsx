@@ -2,7 +2,7 @@ import { useContext, useState, useEffect } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, Modal, TextInput, Alert, KeyboardAvoidingView, Platform } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
 import { logOut, getUserProfile } from '../../services/auth';
-import { updateGoals, getTodaysMeals, deleteMeal, updateMealEntry, getTodayLog, addCustomFood } from '../../services/database';
+import { updateGoals, getTodaysMeals, deleteMeal, updateMealEntry, getTodayLog, addCustomFood, getDailyLogHistory, calculateStreak } from '../../services/database';
 import { useRouter } from 'expo-router';
 
 const { UserContext } = require('../_layout');
@@ -207,6 +207,7 @@ export default function HomeScreen() {
   const [showEditGoals, setShowEditGoals] = useState(false);
   const [todayMeals, setTodayMeals] = useState<any[]>([]);
   const [editingMeal, setEditingMeal] = useState<any>(null);
+  const [streak, setStreak] = useState(0);
 
   const now = new Date();
   const greeting = now.getHours() < 12 ? 'Good morning' : now.getHours() < 17 ? 'Good afternoon' : 'Good evening';
@@ -226,6 +227,17 @@ export default function HomeScreen() {
     if (!user?.uid) return;
     loadMeals();
   }, [user?.uid, todayLog]);
+
+  useEffect(() => {
+    if (!user?.uid || !profile?.calorieGoal) return;
+    let mounted = true;
+    (async () => {
+      const history = await getDailyLogHistory(user.uid, 45);
+      if (!mounted) return;
+      setStreak(calculateStreak(history, profile.calorieGoal));
+    })();
+    return () => { mounted = false; };
+  }, [user?.uid, profile?.calorieGoal, todayLog]);
 
   const loadMeals = async () => {
     const meals = await getTodaysMeals(user.uid);
@@ -390,7 +402,7 @@ export default function HomeScreen() {
             <Text style={{ fontSize: 22 }}>🔥</Text>
           </View>
           <View>
-            <Text style={{ fontSize: 22, fontWeight: '700' }}>{profile?.streak || 0} days</Text>
+            <Text style={{ fontSize: 22, fontWeight: '700' }}>{streak} days</Text>
             <Text style={{ fontSize: 13, color: '#999', marginTop: 2 }}>Current streak</Text>
           </View>
         </View>
