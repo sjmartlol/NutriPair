@@ -2,7 +2,7 @@ import { useContext, useState, useEffect } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, Modal, TextInput, Alert, KeyboardAvoidingView, Platform } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
 import { logOut, getUserProfile } from '../../services/auth';
-import { updateGoals, getTodaysMeals, deleteMeal, updateMealEntry, getTodayLog } from '../../services/database';
+import { updateGoals, getTodaysMeals, deleteMeal, updateMealEntry, getTodayLog, addCustomFood } from '../../services/database';
 import { useRouter } from 'expo-router';
 
 const { UserContext } = require('../_layout');
@@ -108,7 +108,7 @@ function EditGoalsModal({ visible, profile, onClose, onSave }: any) {
   );
 }
 
-function EditMealModal({ visible, meal, onClose, onSave, onDelete }: any) {
+function EditMealModal({ visible, meal, onClose, onSave, onDelete, onSaveToCustom }: any) {
   const [name, setName] = useState(meal?.name || '');
   const [calories, setCalories] = useState(String(meal?.calories || ''));
   const [protein, setProtein] = useState(String(meal?.protein || ''));
@@ -172,8 +172,19 @@ function EditMealModal({ visible, meal, onClose, onSave, onDelete }: any) {
               ))}
             </View>
 
-            <TouchableOpacity onPress={handleSave} disabled={saving} style={{ backgroundColor: saving?'#A8C5A0':'#7BA876', padding: 14, borderRadius: 12, alignItems: 'center', marginBottom: 12 }}>
+            <TouchableOpacity onPress={handleSave} disabled={saving} style={{ backgroundColor: saving?'#A8C5A0':'#7BA876', padding: 14, borderRadius: 12, alignItems: 'center', marginBottom: 8 }}>
               <Text style={{ color: 'white', fontWeight: '600', fontSize: 15 }}>{saving ? 'Saving...' : 'Save changes'}</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity onPress={() => onSaveToCustom({
+              name: name.trim(), calories: Number(calories)||0,
+              protein: Number(protein)||0, carbs: Number(carbs)||0,
+              fat: Number(fat)||0, serving: serving.trim() || '1 serving',
+            })} style={{
+              padding: 14, borderRadius: 12, alignItems: 'center', marginBottom: 8,
+              borderWidth: 1.5, borderColor: '#D4E8D1', backgroundColor: '#F6FAF5',
+            }}>
+              <Text style={{ color: '#7BA876', fontWeight: '600' }}>Save to my foods</Text>
             </TouchableOpacity>
 
             <TouchableOpacity onPress={onDelete} style={{ padding: 14, borderRadius: 12, alignItems: 'center', borderWidth: 1.5, borderColor: '#F0DAD5' }}>
@@ -255,7 +266,34 @@ export default function HomeScreen() {
               const updatedLog = await getTodayLog(user.uid);
               ctx.setTodayLog(updatedLog);
               setEditingMeal(null);
-              Alert.alert('Deleted', 'Meal removed from today');
+            } catch (err: any) { Alert.alert('Error', err.message); }
+          }
+        }
+      ]
+    );
+  };
+
+  const handleSaveToCustom = async (food: any) => {
+    try {
+      await addCustomFood(user.uid, food);
+      setEditingMeal(null);
+      Alert.alert('Saved!', `"${food.name}" added to your custom foods`);
+    } catch (err: any) { Alert.alert('Error', err.message); }
+  };
+
+  const handleQuickDelete = (meal: any) => {
+    Alert.alert(
+      'Remove meal?',
+      `Delete "${meal.name}" (${meal.calories} cal) from today?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Remove', style: 'destructive',
+          onPress: async () => {
+            try {
+              await deleteMeal(user.uid, meal.id, meal);
+              const updatedLog = await getTodayLog(user.uid);
+              ctx.setTodayLog(updatedLog);
             } catch (err: any) { Alert.alert('Error', err.message); }
           }
         }
@@ -305,27 +343,42 @@ export default function HomeScreen() {
             <Text style={{ fontSize: 16, fontWeight: '600', marginBottom: 12 }}>Today's meals</Text>
             <View style={{ backgroundColor: 'white', borderRadius: 16, overflow: 'hidden', shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.04, shadowRadius: 3 }}>
               {todayMeals.map((meal, i) => (
-                <TouchableOpacity key={meal.id} onPress={() => setEditingMeal(meal)} style={{
-                  flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-                  padding: 14, paddingHorizontal: 18,
+                <View key={meal.id} style={{
+                  flexDirection: 'row', alignItems: 'center',
                   borderBottomWidth: i < todayMeals.length - 1 ? 1 : 0, borderBottomColor: '#F0F0EE',
                 }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 }}>
-                    <View style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: '#F5F5F3', justifyContent: 'center', alignItems: 'center' }}>
-                      <Text style={{ fontSize: 16 }}>
-                        {meal.mealType === 'Breakfast' ? '🥚' : meal.mealType === 'Lunch' ? '🥗' : meal.mealType === 'Dinner' ? '🍗' : '🥤'}
-                      </Text>
+                  <TouchableOpacity onPress={() => setEditingMeal(meal)} style={{
+                    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+                    padding: 14, paddingHorizontal: 18, flex: 1,
+                  }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 }}>
+                      <View style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: '#F5F5F3', justifyContent: 'center', alignItems: 'center' }}>
+                        <Text style={{ fontSize: 16 }}>
+                          {meal.mealType === 'Breakfast' ? '🥚' : meal.mealType === 'Lunch' ? '🥗' : meal.mealType === 'Dinner' ? '🍗' : '🥤'}
+                        </Text>
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ fontSize: 14, fontWeight: '600' }} numberOfLines={1}>{meal.name}</Text>
+                        <Text style={{ fontSize: 11, color: '#999', marginTop: 2 }}>{meal.mealType} · {meal.serving || ''}</Text>
+                      </View>
                     </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={{ fontSize: 14, fontWeight: '600' }} numberOfLines={1}>{meal.name}</Text>
-                      <Text style={{ fontSize: 11, color: '#999', marginTop: 2 }}>{meal.mealType} · {meal.serving || ''}</Text>
+                    <View style={{ alignItems: 'flex-end' }}>
+                      <Text style={{ fontSize: 14, fontWeight: '600', color: '#2D2D2D' }}>{meal.calories} cal</Text>
+                      <Text style={{ fontSize: 10, color: '#CCC', marginTop: 2 }}>Tap to edit</Text>
                     </View>
-                  </View>
-                  <View style={{ alignItems: 'flex-end' }}>
-                    <Text style={{ fontSize: 14, fontWeight: '600', color: '#2D2D2D' }}>{meal.calories} cal</Text>
-                    <Text style={{ fontSize: 10, color: '#CCC', marginTop: 2 }}>Tap to edit</Text>
-                  </View>
-                </TouchableOpacity>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => handleQuickDelete(meal)}
+                    style={{ paddingVertical: 14, paddingRight: 16, paddingLeft: 4 }}
+                  >
+                    <View style={{
+                      width: 28, height: 28, borderRadius: 8,
+                      backgroundColor: '#FDF2F0', justifyContent: 'center', alignItems: 'center',
+                    }}>
+                      <Text style={{ fontSize: 13, color: '#D45A5A' }}>✕</Text>
+                    </View>
+                  </TouchableOpacity>
+                </View>
               ))}
             </View>
           </View>
@@ -349,7 +402,7 @@ export default function HomeScreen() {
       </ScrollView>
 
       <EditGoalsModal visible={showEditGoals} profile={profile} onClose={() => setShowEditGoals(false)} onSave={handleSaveGoals} />
-      <EditMealModal visible={!!editingMeal} meal={editingMeal} onClose={() => setEditingMeal(null)} onSave={handleEditMealSave} onDelete={handleDeleteMeal} />
+      <EditMealModal visible={!!editingMeal} meal={editingMeal} onClose={() => setEditingMeal(null)} onSave={handleEditMealSave} onDelete={handleDeleteMeal} onSaveToCustom={handleSaveToCustom} />
     </View>
   );
 }
