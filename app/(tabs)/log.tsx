@@ -2,7 +2,7 @@ import { CameraView, useCameraPermissions } from 'expo-camera';
 import { lookupBarcode } from '../../services/foodSearch';
 import { useState, useContext, useEffect, useRef } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, TextInput, Alert, Modal, KeyboardAvoidingView, Platform, ActivityIndicator } from 'react-native';
-import { logMeal, getTodayLog, getCustomFoods, addCustomFood } from '../../services/database';
+import { logMeal, getTodayLog, getCustomFoods, addCustomFood, deleteCustomFood } from '../../services/database';
 import { searchFoods, FoodResult } from '../../services/foodSearch';
 import { analyzeFoodPhoto } from '../../services/foodVision';
 
@@ -41,7 +41,7 @@ function MacroPill({ label, value, unit, color }: { label: string; value: number
   );
 }
 
-function FoodRow({ food, added, onToggle, tag }: { food: any; added: boolean; onToggle: () => void; tag?: string }) {
+function FoodRow({ food, added, onToggle, tag, onDelete }: { food: any; added: boolean; onToggle: () => void; tag?: string; onDelete?: () => void }) {
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: '#EEECE9' }}>
       <View style={{ flex: 1 }}>
@@ -61,8 +61,18 @@ function FoodRow({ food, added, onToggle, tag }: { food: any; added: boolean; on
           <MacroPill label="F" value={food.fat} unit="g" color="#D4845A" />
         </View>
       </View>
+      {onDelete && (
+        <TouchableOpacity onPress={onDelete} style={{ padding: 6, marginLeft: 4 }}>
+          <View style={{
+            width: 28, height: 28, borderRadius: 8,
+            backgroundColor: '#FDF2F0', justifyContent: 'center', alignItems: 'center',
+          }}>
+            <Text style={{ fontSize: 13, color: '#D45A5A' }}>✕</Text>
+          </View>
+        </TouchableOpacity>
+      )}
       <TouchableOpacity onPress={onToggle} style={{
-        width: 36, height: 36, borderRadius: 10, marginLeft: 12,
+        width: 36, height: 36, borderRadius: 10, marginLeft: onDelete ? 6 : 12,
         borderWidth: added ? 0 : 1.5, borderColor: '#D8D8D6',
         backgroundColor: added ? '#7BA876' : 'transparent',
         justifyContent: 'center', alignItems: 'center',
@@ -258,6 +268,26 @@ export default function LogMealScreen() {
     }
   };
 
+  const handleDeleteCustomFood = (food: any) => {
+    Alert.alert(
+      'Delete custom food?',
+      `Remove "${food.name}" from your foods? This cannot be undone.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete', style: 'destructive',
+          onPress: async () => {
+            try {
+              await deleteCustomFood(user.uid, food.id);
+              setCustomFoods(prev => prev.filter(f => f.id !== food.id));
+              setAddedFoods(prev => prev.filter(f => f.id !== food.id));
+            } catch (err: any) { Alert.alert('Error', err.message); }
+          }
+        }
+      ]
+    );
+  };
+
   const scanLock = useRef(false);
 
   const handleBarcodeScan = async ({ data }: { data: string }) => {
@@ -434,7 +464,8 @@ export default function LogMealScreen() {
                 </Text>
                 {localMatches.map(food => (
                   <FoodRow key={food.id} food={food} added={isAdded(food.id)}
-                    onToggle={() => handleToggle(food)} tag={(food as any)._tag} />
+                    onToggle={() => handleToggle(food)} tag={(food as any)._tag}
+                    onDelete={(food as any)._tag === 'Custom' ? () => handleDeleteCustomFood(food) : undefined} />
                 ))}
               </>
             )}
@@ -473,7 +504,8 @@ export default function LogMealScreen() {
                 <Text style={{ fontSize: 14, fontWeight: '600', color: '#999', marginBottom: 12 }}>Your custom foods</Text>
                 {customFoods.map(food => (
                   <FoodRow key={food.id} food={food} added={isAdded(food.id)}
-                    onToggle={() => handleToggle(food)} tag="Custom" />
+                    onToggle={() => handleToggle(food)} tag="Custom"
+                    onDelete={() => handleDeleteCustomFood(food)} />
                 ))}
                 <View style={{ height: 16 }} />
               </>
