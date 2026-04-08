@@ -13,7 +13,7 @@ function getGeminiApiKey(): string {
 function assertGeminiKey(): void {
   if (!getGeminiApiKey()) {
     throw new Error(
-      'NutriPair: Food vision needs EXPO_PUBLIC_GEMINI_API_KEY. Add it to a .env file in the project root, then restart Expo (npx expo start --clear). For EAS builds, set the variable in eas.json env or EAS Secrets.'
+      'NutriPair: Food vision needs EXPO_PUBLIC_GEMINI_API_KEY. For local dev, add it to .env in the project root and restart Expo (npx expo start --clear). For TestFlight / EAS builds, add the same variable in expo.dev → your project → Environment variables (Production), then run a new iOS build.'
     );
   }
 }
