@@ -1,8 +1,9 @@
 import { useState, useContext, useEffect } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, TextInput, Alert, Modal, KeyboardAvoidingView, Platform } from 'react-native';
-import { logOut, getUserProfile } from '../../services/auth';
-import { updateUserName, updateGoals, getCustomFoods, getDailyLogHistory, calculateStreak } from '../../services/database';
+import { View, Text, ScrollView, TouchableOpacity, TextInput, Alert, Modal, KeyboardAvoidingView, Platform, Switch } from 'react-native';
+import { getStaySignedInPreference, logOut, getUserProfile, setStaySignedInPreference } from '../../services/auth';
+import { updateUserName, updateGoals, getMyFoods, getDailyLogHistory, calculateStreak } from '../../services/database';
 import { calculateBMR, ACTIVITY_LABELS, GOAL_LABELS, type Gender, type Goal, type ActivityLevel, type BMRInput, type BMRResult } from '../../services/bmrCalculator';
+import { useRouter } from 'expo-router';
 
 const { UserContext } = require('../_layout');
 
@@ -329,18 +330,27 @@ export default function ProfileScreen() {
   const profile = ctx?.profile;
   const user = ctx?.user;
   const todayLog = ctx?.todayLog;
+  const router = useRouter();
 
   const [showEditName, setShowEditName] = useState(false);
   const [showBMR, setShowBMR] = useState(false);
-  const [customFoodCount, setCustomFoodCount] = useState(0);
+  const [myFoodsCount, setMyFoodsCount] = useState(0);
   const [totalMealsLogged, setTotalMealsLogged] = useState(0);
   const [streak, setStreak] = useState(0);
+  const [staySignedIn, setStaySignedIn] = useState(true);
+
+  useEffect(() => {
+    (async () => {
+      const pref = await getStaySignedInPreference();
+      setStaySignedIn(pref);
+    })();
+  }, []);
 
   useEffect(() => {
     if (!user?.uid) return;
     (async () => {
-      const customFoods = await getCustomFoods(user.uid);
-      setCustomFoodCount(customFoods.length);
+      const foods = await getMyFoods(user.uid);
+      setMyFoodsCount(foods.length);
       const history = await getDailyLogHistory(user.uid, 60);
       const totalMeals = Object.values(history).reduce((sum: number, log: any) => sum + (log.mealsLogged || 0), 0);
       setTotalMealsLogged(totalMeals);
@@ -420,8 +430,34 @@ export default function ProfileScreen() {
       <View style={{ flexDirection: 'row', gap: 10, paddingHorizontal: 24, marginTop: 16 }}>
         <StatBox label="Day streak" value={`${streak}`} icon="🔥" />
         <StatBox label="Meals logged" value={`${totalMealsLogged}`} icon="🍽️" />
-        <StatBox label="Custom foods" value={`${customFoodCount}`} icon="⭐" />
+        <StatBox label="My foods" value={`${myFoodsCount}`} icon="⭐" />
       </View>
+
+      {/* My Foods */}
+      <TouchableOpacity
+        onPress={() => router.push('/my-foods')}
+        style={{
+          marginHorizontal: 24,
+          marginTop: 14,
+          borderRadius: 16,
+          padding: 18,
+          backgroundColor: 'white',
+          borderWidth: 1.5,
+          borderColor: '#E0DED9',
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: 12,
+        }}
+      >
+        <View style={{ width: 44, height: 44, borderRadius: 14, backgroundColor: '#F5F5F3', justifyContent: 'center', alignItems: 'center' }}>
+          <Text style={{ fontSize: 18 }}>⭐</Text>
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={{ fontSize: 15, fontWeight: '700' }}>Manage My Foods</Text>
+          <Text style={{ fontSize: 12, color: '#999', marginTop: 2 }}>Search, edit, and delete saved foods</Text>
+        </View>
+        <Text style={{ color: '#CCC', fontSize: 18 }}>→</Text>
+      </TouchableOpacity>
 
       {/* Goals Summary */}
       <View style={{ paddingHorizontal: 24, marginTop: 20 }}>
@@ -489,6 +525,20 @@ export default function ProfileScreen() {
             <Text style={{ fontSize: 14, fontWeight: '600', marginTop: 2 }}>
               {profile?.createdAt ? new Date(profile.createdAt).toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) : 'Unknown'}
             </Text>
+          </View>
+          <View style={{ padding: 16, paddingHorizontal: 18, borderBottomWidth: 1, borderBottomColor: '#F0F0EE', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontSize: 14, color: '#666' }}>Stay signed in</Text>
+              <Text style={{ fontSize: 12, color: '#999', marginTop: 2 }}>
+                {staySignedIn ? 'Keep you logged in after restarting the app' : 'Sign out when you restart the app'}
+              </Text>
+            </View>
+            <Switch
+              value={staySignedIn}
+              onValueChange={async (v) => { setStaySignedIn(v); await setStaySignedInPreference(v); }}
+              trackColor={{ false: '#E0DED9', true: '#A8C5A0' }}
+              thumbColor={staySignedIn ? '#7BA876' : '#f4f3f4'}
+            />
           </View>
           <View style={{ padding: 16, paddingHorizontal: 18 }}>
             <Text style={{ fontSize: 14, color: '#666' }}>Partner code</Text>

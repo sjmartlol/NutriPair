@@ -1,5 +1,5 @@
 import { useState, useContext, useEffect } from 'react';
-import { View, Text, ScrollView } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
 import { getDailyLogHistory, calculateStreak } from '../../services/database';
 
@@ -60,6 +60,8 @@ export default function CheckInScreen() {
   const [history, setHistory] = useState<Record<string, any>>({});
   const [viewMonth, setViewMonth] = useState(new Date().getMonth());
   const [viewYear, setViewYear] = useState(new Date().getFullYear());
+  const [weekData, setWeekData] = useState<any[]>([]);
+  const [weekOffset, setWeekOffset] = useState(0);
 
   const consumed = todayLog?.totalCalories || 0;
   const goal = profile?.calorieGoal || 2000;
@@ -75,6 +77,29 @@ export default function CheckInScreen() {
       setStreak(s);
     })();
   }, [user?.uid, todayLog]);
+
+  useEffect(() => {
+    if (!user?.uid) return;
+    (async () => {
+      const history = await getDailyLogHistory(user.uid, 60);
+      const days = [];
+      const end = new Date();
+      end.setDate(end.getDate() - (weekOffset * 7));
+
+      for (let i = 6; i >= 0; i--) {
+        const d = new Date(end);
+        d.setDate(d.getDate() - i);
+        const dateStr = d.toISOString().split('T')[0];
+        const log = history[dateStr];
+        days.push({
+          day: WEEKDAYS[d.getDay()],
+          calories: log?.totalCalories || 0,
+          protein: log?.totalProtein || 0,
+        });
+      }
+      setWeekData(days);
+    })();
+  }, [user?.uid, weekOffset, todayLog]);
 
   const statusConfig: Record<string, any> = {
     yes: { emoji: '🎯', title: 'Goal hit!', subtitle: 'You nailed it today', bg: '#F0F5EE', border: '#D8E4D5' },
@@ -127,6 +152,20 @@ export default function CheckInScreen() {
   const almostCount = allLogs.filter(l => getStatus(l.totalCalories, goal) === 'almost').length;
   const totalDays = allLogs.length;
   const hitRate = totalDays > 0 ? Math.round(((yesCount + almostCount) / totalDays) * 100) : 0;
+  const daysWithWeekData = weekData.filter(d => d.calories > 0);
+  const avgCal = daysWithWeekData.length > 0 ? Math.round(daysWithWeekData.reduce((s, d) => s + d.calories, 0) / daysWithWeekData.length) : 0;
+  const avgProtein = daysWithWeekData.length > 0 ? Math.round(daysWithWeekData.reduce((s, d) => s + d.protein, 0) / daysWithWeekData.length) : 0;
+  const daysHit = weekData.filter(d => getStatus(d.calories, goal) === 'yes').length;
+  const maxCal = Math.max(...weekData.map(d => d.calories), goal) * 1.15 || goal * 1.15;
+
+  const getWeekLabel = () => {
+    if (weekOffset === 0) return 'This week';
+    const end = new Date();
+    end.setDate(end.getDate() - (weekOffset * 7));
+    const start = new Date(end);
+    start.setDate(start.getDate() - 6);
+    return `${start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${end.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
+  };
 
   return (
     <ScrollView style={{ flex: 1, backgroundColor: '#F5F5F3' }} contentContainerStyle={{ paddingBottom: 40 }}>
@@ -274,6 +313,86 @@ export default function CheckInScreen() {
             <Text style={{ fontSize: 11, color: '#999', fontWeight: '600', marginTop: 4 }}>{stat.label}</Text>
           </View>
         ))}
+      </View>
+
+      {/* Weekly report (merged from Report tab) */}
+      <View style={{ paddingHorizontal: 24, paddingTop: 28 }}>
+        <Text style={{ fontSize: 20, fontWeight: '700' }}>Weekly Report</Text>
+        <Text style={{ fontSize: 13, color: '#999', marginTop: 4 }}>Your nutrition trends</Text>
+      </View>
+
+      <View style={{ flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 16, marginTop: 14 }}>
+        <TouchableOpacity onPress={() => setWeekOffset(weekOffset + 1)} style={{
+          width: 32, height: 32, borderRadius: 8, backgroundColor: 'white',
+          borderWidth: 1, borderColor: '#E8E8E6', justifyContent: 'center', alignItems: 'center',
+        }}>
+          <Text style={{ fontSize: 14, color: '#666' }}>◀</Text>
+        </TouchableOpacity>
+        <Text style={{ fontSize: 15, fontWeight: '600', minWidth: 140, textAlign: 'center' }}>
+          {getWeekLabel()}
+        </Text>
+        <TouchableOpacity onPress={() => { if (weekOffset > 0) setWeekOffset(weekOffset - 1); }}
+          disabled={weekOffset === 0}
+          style={{
+            width: 32, height: 32, borderRadius: 8, backgroundColor: 'white',
+            borderWidth: 1, borderColor: '#E8E8E6', justifyContent: 'center', alignItems: 'center',
+            opacity: weekOffset === 0 ? 0.3 : 1,
+          }}>
+          <Text style={{ fontSize: 14, color: '#666' }}>▶</Text>
+        </TouchableOpacity>
+      </View>
+
+      <View style={{ flexDirection: 'row', gap: 10, paddingHorizontal: 24, marginTop: 14 }}>
+        {[
+          { label: 'Avg cal/day', value: `${avgCal}`, color: '#2D2D2D', icon: '📊' },
+          { label: 'Days on target', value: `${daysHit}/7`, color: '#7BA876', icon: '🎯' },
+          { label: 'Avg protein', value: `${avgProtein}g`, color: '#D4A45A', icon: '💪' },
+        ].map(s => (
+          <View key={s.label} style={{
+            flex: 1, backgroundColor: 'white', borderRadius: 16, padding: 16,
+            shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.04, shadowRadius: 3,
+          }}>
+            <Text style={{ fontSize: 20, marginBottom: 6 }}>{s.icon}</Text>
+            <Text style={{ fontSize: 24, fontWeight: '700', color: s.color }}>{s.value}</Text>
+            <Text style={{ fontSize: 12, color: '#999', marginTop: 2 }}>{s.label}</Text>
+          </View>
+        ))}
+      </View>
+
+      <View style={{
+        marginHorizontal: 24, marginTop: 16, backgroundColor: 'white',
+        borderRadius: 20, padding: 20,
+        shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.04, shadowRadius: 3,
+      }}>
+        <Text style={{ fontSize: 14, fontWeight: '600', color: '#999', marginBottom: 16 }}>Daily calories</Text>
+
+        <View style={{ height: 150, flexDirection: 'row', alignItems: 'flex-end', gap: 6 }}>
+          {weekData.map((d, i) => {
+            const h = maxCal > 0 ? (d.calories / maxCal) * 100 : 0;
+            const status = getStatus(d.calories, goal);
+            const color = status === 'yes' ? '#7BA876' : status === 'almost' ? '#D4A45A' : d.calories > 0 ? '#D4845A' : '#E8E8E6';
+            return (
+              <View key={i} style={{ flex: 1, alignItems: 'center', justifyContent: 'flex-end', height: '100%' }}>
+                <Text style={{ fontSize: 10, fontWeight: '600', color: '#999', marginBottom: 4 }}>
+                  {d.calories > 0 ? d.calories : ''}
+                </Text>
+                <View style={{
+                  width: '80%', maxWidth: 32, borderTopLeftRadius: 8, borderTopRightRadius: 8,
+                  borderBottomLeftRadius: 4, borderBottomRightRadius: 4,
+                  backgroundColor: color, height: `${Math.max(h, 3)}%`, minHeight: 4,
+                }} />
+              </View>
+            );
+          })}
+        </View>
+
+        <View style={{ flexDirection: 'row', gap: 6, marginTop: 8 }}>
+          {weekData.map((d, i) => (
+            <View key={i} style={{ flex: 1, alignItems: 'center' }}>
+              <Text style={{ fontSize: 11, fontWeight: '600', color: '#999' }}>{d.day}</Text>
+            </View>
+          ))}
+        </View>
       </View>
     </ScrollView>
   );

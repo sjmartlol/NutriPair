@@ -1,6 +1,8 @@
 import { initializeApp } from 'firebase/app';
-import { getAuth } from 'firebase/auth';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getAuth, initializeAuth, getReactNativePersistence } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
+import { Platform } from 'react-native';
 
 const firebaseConfig = {
   apiKey: "AIzaSyAs0OkHY48QWkef6jafsGR-iv48Vo3zFBM",
@@ -12,5 +14,20 @@ const firebaseConfig = {
 };
 
 const app = initializeApp(firebaseConfig);
-export const auth = getAuth(app);
+
+// Persist Firebase auth sessions on native so users stay signed in across app restarts.
+const authInstance =
+  Platform.OS === 'web'
+    ? getAuth(app)
+    : (() => {
+        try {
+          return initializeAuth(app, {
+            persistence: getReactNativePersistence(AsyncStorage),
+          });
+        } catch {
+          return getAuth(app);
+        }
+      })();
+
+export const auth = authInstance;
 export const db = getFirestore(app);

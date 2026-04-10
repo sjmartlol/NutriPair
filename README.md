@@ -16,6 +16,20 @@ This is an [Expo](https://expo.dev) project created with [`create-expo-app`](htt
    npx expo start
    ```
 
+## Firestore rules
+
+This app reads **partner** data from:
+
+- `users/{uid}`
+- `users/{uid}/dailyLogs/{date}`
+- `users/{uid}/meals/{meal}`
+
+If you see `FirebaseError: Missing or insufficient permissions`, deploy the included rules:
+
+```bash
+npm run firebase:deploy:rules
+```
+
 In the output, you'll find options to open the app in a
 
 - [development build](https://docs.expo.dev/develop/development-builds/introduction/)

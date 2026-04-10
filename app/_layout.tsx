@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, ActivityIndicator, ScrollView } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, ActivityIndicator, ScrollView, Switch } from 'react-native';
 import { Stack } from 'expo-router';
-import { onAuthChange, getUserProfile, signIn, signUp, logOut } from '../services/auth';
+import { getStaySignedInPreference, onAuthChange, getUserProfile, setStaySignedInPreference, signIn, signUp, logOut } from '../services/auth';
 import { getTodayLog, getPresets, getDailyLogHistory, calculateStreak, getPartnerData, completeOnboarding, updateGoals } from '../services/database';
 import { registerForPushNotifications } from '../services/notifications';
 import OnboardingScreen from './onboarding';
@@ -20,6 +20,12 @@ export default function RootLayout() {
   useEffect(() => {
     const unsubscribe = onAuthChange(async (firebaseUser: any) => {
       if (firebaseUser) {
+        const staySignedIn = await getStaySignedInPreference();
+        if (!staySignedIn) {
+          await logOut();
+          setLoading(false);
+          return;
+        }
         const p = await getUserProfile(firebaseUser.uid);
         const log = await getTodayLog(firebaseUser.uid);
         setUser(firebaseUser);
@@ -89,11 +95,22 @@ function LoginScreen() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [showBMRAfterOnboarding, setShowBMRAfterOnboarding] = useState(false);
+  const [staySignedIn, setStaySignedIn] = useState(true);
+  const [prefLoading, setPrefLoading] = useState(true);
+
+  useEffect(() => {
+    (async () => {
+      const pref = await getStaySignedInPreference();
+      setStaySignedIn(pref);
+      setPrefLoading(false);
+    })();
+  }, []);
   
   const handleSubmit = async () => {
     try {
       setError('');
       setLoading(true);
+      await setStaySignedInPreference(staySignedIn);
       if (isSignup) {
         await signUp(email, password, name, 2000);
       } else {
@@ -136,6 +153,22 @@ function LoginScreen() {
         placeholder="Password (min 6 characters)" value={password}
         onChangeText={setPassword} secureTextEntry style={input}
       />
+
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 2, marginBottom: 10 }}>
+        <View style={{ flex: 1, paddingRight: 12 }}>
+          <Text style={{ fontSize: 13, fontWeight: '600', color: '#2D2D2D' }}>Stay signed in</Text>
+          <Text style={{ fontSize: 12, color: '#999', marginTop: 2 }}>
+            {staySignedIn ? 'Keep you logged in after restarting the app' : 'You’ll be signed out when you restart the app'}
+          </Text>
+        </View>
+        <Switch
+          value={staySignedIn}
+          disabled={prefLoading || loading}
+          onValueChange={setStaySignedIn}
+          trackColor={{ false: '#E0DED9', true: '#A8C5A0' }}
+          thumbColor={staySignedIn ? '#7BA876' : '#f4f3f4'}
+        />
+      </View>
 
       {error ? (
         <Text style={{ color: '#D45A5A', marginBottom: 12, fontSize: 13 }}>{error}</Text>

@@ -1,6 +1,15 @@
 import {
-  doc, setDoc, getDoc, getDocs, addDoc, updateDoc, deleteDoc,
-  collection, query, where, orderBy, onSnapshot
+    addDoc,
+    collection,
+    deleteDoc,
+    doc,
+    getDoc, getDocs,
+    onSnapshot,
+    orderBy,
+    query,
+    setDoc,
+    updateDoc,
+    where
 } from 'firebase/firestore';
 import { db } from '../firebaseConfig';
 
@@ -151,6 +160,11 @@ export async function getPartnerData(partnerId) {
 
 // ========== CUSTOM FOODS ==========
 
+export async function getMyFoods(uid: string) {
+  const foods = await getCustomFoods(uid);
+  return foods;
+}
+
 export async function getCustomFoods(uid: string) {
   const snapshot = await getDocs(collection(db, 'users', uid, 'customFoods'));
   return snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -164,6 +178,15 @@ export async function addCustomFood(uid: string, food: any) {
     carbs: food.carbs || 0,
     fat: food.fat || 0,
     serving: food.serving || '1 serving',
+    // Optional metadata (safe to ignore elsewhere)
+    source: food.source || 'custom',
+    barcode: food.barcode || null,
+    externalId: food.externalId || null,
+    servingsCount: food.servingsCount || null,
+    baseCalories: food.baseCalories || null,
+    baseProtein: food.baseProtein || null,
+    baseCarbs: food.baseCarbs || null,
+    baseFat: food.baseFat || null,
     createdAt: new Date().toISOString(),
   });
   return { id: docRef.id, ...food };
@@ -187,6 +210,28 @@ export async function updateGoals(uid: string, goals: {
     carbsGoal: goals.carbsGoal,
     fatGoal: goals.fatGoal,
   });
+}
+
+export async function setTodayCalorieGoalOverride(uid: string, calorieGoal: number, calorieBankId?: string) {
+  const today = formatLocalDate(new Date());
+  await setDoc(doc(db, 'users', uid, 'dailyGoalOverrides', today), {
+    date: today,
+    calorieGoal,
+    calorieBankId: calorieBankId || null,
+    updatedAt: new Date().toISOString(),
+  });
+}
+
+export async function getTodayCalorieGoalOverride(uid: string) {
+  const today = formatLocalDate(new Date());
+  const snap = await getDoc(doc(db, 'users', uid, 'dailyGoalOverrides', today));
+  if (!snap.exists()) return null;
+  return snap.data();
+}
+
+export async function clearTodayCalorieGoalOverride(uid: string) {
+  const today = formatLocalDate(new Date());
+  await deleteDoc(doc(db, 'users', uid, 'dailyGoalOverrides', today));
 }
 
 // ========== DELETE/EDIT MEALS ==========
@@ -253,7 +298,7 @@ export async function completeOnboarding(uid: string) {
   await updateDoc(doc(db, 'users', uid), { onboardingComplete: true });
 }
 
-// ========== WEEKLY CHALLENGES ==========
+// ========== CALORIE BANKING ==========
 
 function parseLocalDate(dateStr: string): Date {
   const [y, m, d] = dateStr.split('-').map(Number);
@@ -267,69 +312,114 @@ function formatLocalDate(date: Date): string {
   return `${y}-${m}-${d}`;
 }
 
-export async function createChallenge(uid: string, partnerId: string, calorieGoal: number, partnerCalorieGoal: number, cheatDay: string, partnerCheatDay: string, autoRenew: boolean = true) {
-  const challengeRef = await addDoc(collection(db, 'challenges'), {
-    createdBy: uid,
-    participants: [uid, partnerId],
-    startDate: null,
-    endDate: null,
-    goals: {
-      [uid]: { dailyGoal: calorieGoal, cheatDay },
-      [partnerId]: { dailyGoal: partnerCalorieGoal, cheatDay: partnerCheatDay },
-    },
-    autoRenew,
-    status: 'pending',
-    createdAt: new Date().toISOString(),
-  });
-  return challengeRef.id;
+const DAYS_MAP: Record<string, number> = {
+  Monday: 1,
+  Tuesday: 2,
+  Wednesday: 3,
+  Thursday: 4,
+  Friday: 5,
+  Saturday: 6,
+  Sunday: 0,
+};
+
+function getNextDateForWeekday(startDateStr: string, weekday: string): string {
+  const start = parseLocalDate(startDateStr);
+  const target = DAYS_MAP[weekday];
+  const delta = (target - start.getDay() + 7) % 7;
+  const result = new Date(start);
+  result.setDate(result.getDate() + (delta === 0 ? 7 : delta));
+  return formatLocalDate(result);
 }
 
-export async function acceptChallenge(challengeId: string, overrideStartDate?: string) {
-  const DAYS_MAP: Record<string, number> = { 'Monday': 1, 'Tuesday': 2, 'Wednesday': 3, 'Thursday': 4, 'Friday': 5, 'Saturday': 6, 'Sunday': 0 };
+function resolveTargetDate(startDate: string, config: any) {
+  if (config?.oneOffTargetDate) return config.oneOffTargetDate;
+  return getNextDateForWeekday(startDate, config?.recurringTargetDay || 'Saturday');
+}
 
-  const challengeSnap = await getDoc(doc(db, 'challenges', challengeId));
-  if (!challengeSnap.exists()) throw new Error('Challenge not found');
+export async function createCalorieBank(
+  uid: string,
+  partnerId: string | null,
+  myConfig: any,
+  partnerConfig?: any,
+  autoRenew: boolean = true
+) {
+  const participants = partnerId ? [uid, partnerId] : [uid];
+  const goals: Record<string, any> = {
+    [uid]: {
+      dailyGoal: myConfig.dailyGoal,
+      recurringTargetDay: myConfig.recurringTargetDay || 'Saturday',
+      oneOffTargetDate: myConfig.oneOffTargetDate || null,
+      targetGoalCalories: myConfig.targetGoalCalories || null,
+    },
+  };
 
-  const challenge = challengeSnap.data();
-  const creatorId = challenge.createdBy;
-  const creatorGoals = challenge.goals[creatorId];
-
-  const startDate = overrideStartDate || formatLocalDate(new Date());
-  const startD = parseLocalDate(startDate);
-  const cheatDayNum = DAYS_MAP[creatorGoals.cheatDay];
-  const daysToCheat = (cheatDayNum - startD.getDay() + 7) % 7;
-  if (daysToCheat === 0) throw new Error('Cannot start on cheat day');
-
-  const endD = new Date(startD);
-  endD.setDate(endD.getDate() + daysToCheat);
-
-  const updatedGoals: Record<string, any> = {};
-  for (const [uid, goals] of Object.entries(challenge.goals) as [string, any][]) {
-    updatedGoals[uid] = {
-      ...goals,
-      weeklyBudget: goals.dailyGoal * daysToCheat,
-      totalDays: daysToCheat,
+  if (partnerId) {
+    goals[partnerId] = {
+      dailyGoal: partnerConfig?.dailyGoal || 2000,
+      recurringTargetDay: partnerConfig?.recurringTargetDay || 'Saturday',
+      oneOffTargetDate: partnerConfig?.oneOffTargetDate || null,
+      targetGoalCalories: partnerConfig?.targetGoalCalories || null,
     };
   }
 
-  await updateDoc(doc(db, 'challenges', challengeId), {
+  const bankRef = await addDoc(collection(db, 'calorieBanks'), {
+    createdBy: uid,
+    participants,
+    startDate: null,
+    endDate: null,
+    goals,
+    autoRenew,
+    status: partnerId ? 'pending' : 'active',
+    createdAt: new Date().toISOString(),
+    acceptedAt: partnerId ? null : new Date().toISOString(),
+  });
+
+  if (!partnerId) {
+    await acceptCalorieBankInvite(bankRef.id);
+  }
+
+  return bankRef.id;
+}
+
+export async function acceptCalorieBankInvite(calorieBankId: string, overrideStartDate?: string) {
+  const bankSnap = await getDoc(doc(db, 'calorieBanks', calorieBankId));
+  if (!bankSnap.exists()) throw new Error('Calorie bank not found');
+
+  const bank = bankSnap.data();
+  const startDate = overrideStartDate || formatLocalDate(new Date());
+  const updatedGoals: Record<string, any> = {};
+
+  let resolvedEndDate: string | null = null;
+  for (const [memberUid, goals] of Object.entries(bank.goals) as [string, any][]) {
+    const targetDate = resolveTargetDate(startDate, goals);
+    if (!resolvedEndDate || targetDate < resolvedEndDate) resolvedEndDate = targetDate;
+    const days = Math.max(1, Math.round((parseLocalDate(targetDate).getTime() - parseLocalDate(startDate).getTime()) / (1000 * 60 * 60 * 24)));
+    updatedGoals[memberUid] = {
+      ...goals,
+      targetDate,
+      totalDays: days,
+      budget: (goals.dailyGoal || 2000) * days,
+    };
+  }
+
+  await updateDoc(doc(db, 'calorieBanks', calorieBankId), {
     startDate,
-    endDate: formatLocalDate(endD),
+    endDate: resolvedEndDate,
     goals: updatedGoals,
     status: 'active',
     acceptedAt: new Date().toISOString(),
   });
 }
 
-export async function declineChallenge(challengeId: string) {
-  await updateDoc(doc(db, 'challenges', challengeId), {
+export async function declineCalorieBank(calorieBankId: string) {
+  await updateDoc(doc(db, 'calorieBanks', calorieBankId), {
     status: 'declined',
   });
 }
 
-export async function getPendingChallenge(uid: string) {
+export async function getPendingCalorieBank(uid: string) {
   const q = query(
-    collection(db, 'challenges'),
+    collection(db, 'calorieBanks'),
     where('participants', 'array-contains', uid),
     where('status', '==', 'pending')
   );
@@ -339,9 +429,9 @@ export async function getPendingChallenge(uid: string) {
   return { id: d.id, ...d.data() };
 }
 
-export async function getActiveChallenge(uid: string) {
+export async function getActiveCalorieBank(uid: string) {
   const q = query(
-    collection(db, 'challenges'),
+    collection(db, 'calorieBanks'),
     where('participants', 'array-contains', uid),
     where('status', '==', 'active')
   );
@@ -352,41 +442,66 @@ export async function getActiveChallenge(uid: string) {
   return { id: doc.id, ...doc.data() };
 }
 
-export async function getChallengeProgress(uid: string, startDate: string, endDate: string) {
+export async function getCalorieBankProgress(
+  uid: string,
+  calorieBankId: string,
+  startDate: string,
+  endDate: string,
+  dailyGoal: number,
+  includeManualEntries: boolean = true
+) {
   let total = 0;
   const days = [];
   const start = parseLocalDate(startDate);
   const end = parseLocalDate(endDate);
   const today = new Date();
   const todayStr = formatLocalDate(today);
-
-  for (let d = new Date(start); d <= end && formatLocalDate(d) <= todayStr; d.setDate(d.getDate() + 1)) {
+  // `endDate` is treated as the target/spend day, so banking accrues before it.
+  for (let d = new Date(start); d < end && formatLocalDate(d) <= todayStr; d.setDate(d.getDate() + 1)) {
     const dateStr = formatLocalDate(d);
     const snap = await getDoc(doc(db, 'users', uid, 'dailyLogs', dateStr));
-    const cal = snap.exists() ? snap.data().totalCalories : 0;
+    const data = snap.exists() ? snap.data() : null;
+    const cal = data?.totalCalories || 0;
+    const hasLogData = !!data && ((data.mealsLogged || 0) > 0 || cal > 0);
     total += cal;
+    // Do not auto-bank a full day from missing/no-log days.
+    const autoBanked = hasLogData ? Math.max(0, dailyGoal - cal) : 0;
     days.push({
       date: dateStr,
       day: new Date(d).toLocaleDateString('en-US', { weekday: 'short' }),
       calories: cal,
+      autoBanked,
       isToday: dateStr === todayStr,
     });
   }
 
-  return { total, days };
+  const manual = includeManualEntries
+    ? await getCalorieBankAdjustments(uid, calorieBankId)
+    : { entries: [], totalAdjustments: 0, totalSpent: 0 };
+  const autoBankedTotal = days.reduce((sum: number, day: any) => sum + day.autoBanked, 0);
+  const availableBank = Math.max(0, autoBankedTotal + manual.totalAdjustments - manual.totalSpent);
+  return {
+    totalCalories: total,
+    days,
+    autoBankedTotal,
+    manualAdjustments: manual.totalAdjustments,
+    manualSpent: manual.totalSpent,
+    availableBank,
+    entries: manual.entries,
+  };
 }
 
-export async function completeChallenge(challengeId: string, results: any) {
-  await updateDoc(doc(db, 'challenges', challengeId), {
+export async function completeCalorieBank(calorieBankId: string, results: any) {
+  await updateDoc(doc(db, 'calorieBanks', calorieBankId), {
     status: 'completed',
     results,
     completedAt: new Date().toISOString(),
   });
 }
 
-export async function getPastChallenges(uid: string) {
+export async function getPastCalorieBanks(uid: string) {
   const q = query(
-    collection(db, 'challenges'),
+    collection(db, 'calorieBanks'),
     where('participants', 'array-contains', uid),
     where('status', '==', 'completed')
   );
@@ -394,6 +509,114 @@ export async function getPastChallenges(uid: string) {
   return snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
 }
 
+export async function toggleCalorieBankAutoRenew(calorieBankId: string, autoRenew: boolean) {
+  await updateDoc(doc(db, 'calorieBanks', calorieBankId), { autoRenew });
+}
+
+export async function setCalorieBankAutoAdjustTarget(
+  calorieBankId: string,
+  uid: string,
+  enabled: boolean,
+  baseDailyGoal?: number
+) {
+  const payload: Record<string, any> = {
+    [`goals.${uid}.autoAdjustDailyTarget`]: enabled,
+  };
+  if (typeof baseDailyGoal === 'number') {
+    payload[`goals.${uid}.baseDailyGoal`] = baseDailyGoal;
+  }
+  await updateDoc(doc(db, 'calorieBanks', calorieBankId), payload);
+}
+
+export async function setCalorieBankSpendAffectsGoal(calorieBankId: string, uid: string, enabled: boolean) {
+  await updateDoc(doc(db, 'calorieBanks', calorieBankId), {
+    [`goals.${uid}.spendAffectsTodayGoal`]: enabled,
+  });
+}
+
+export async function addCalorieBankAdjustment(
+  uid: string,
+  calorieBankId: string,
+  amount: number,
+  entryType: 'adjustment' | 'spend',
+  note: string = ''
+) {
+  if (!amount || amount < 0) throw new Error('Amount must be positive');
+  return addDoc(collection(db, 'users', uid, 'calorieBankEntries'), {
+    calorieBankId,
+    amount,
+    type: entryType,
+    note,
+    createdAt: new Date().toISOString(),
+    date: formatLocalDate(new Date()),
+  });
+}
+
+export async function getCalorieBankAdjustments(uid: string, calorieBankId: string) {
+  const q = query(
+    collection(db, 'users', uid, 'calorieBankEntries'),
+    where('calorieBankId', '==', calorieBankId)
+  );
+  const snapshot = await getDocs(q);
+  const entries = snapshot.docs
+    .map((d: any) => ({ id: d.id, ...d.data() }))
+    .sort((a: any, b: any) => {
+      const at = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const bt = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      return bt - at;
+    });
+  const totalAdjustments = entries
+    .filter((e: any) => e.type === 'adjustment')
+    .reduce((sum: number, e: any) => sum + (e.amount || 0), 0);
+  const totalSpent = entries
+    .filter((e: any) => e.type === 'spend')
+    .reduce((sum: number, e: any) => sum + (e.amount || 0), 0);
+  return { entries, totalAdjustments, totalSpent };
+}
+
+// ========== LEGACY CHALLENGE WRAPPERS ==========
+// Kept for compatibility while screens migrate fully to calorie banking.
+export async function createChallenge(uid: string, partnerId: string, calorieGoal: number, partnerCalorieGoal: number, cheatDay: string, partnerCheatDay: string, autoRenew: boolean = true) {
+  return createCalorieBank(
+    uid,
+    partnerId,
+    { dailyGoal: calorieGoal, recurringTargetDay: cheatDay },
+    { dailyGoal: partnerCalorieGoal, recurringTargetDay: partnerCheatDay },
+    autoRenew
+  );
+}
+
+export async function acceptChallenge(challengeId: string, overrideStartDate?: string) {
+  return acceptCalorieBankInvite(challengeId, overrideStartDate);
+}
+
+export async function declineChallenge(challengeId: string) {
+  return declineCalorieBank(challengeId);
+}
+
+export async function getPendingChallenge(uid: string) {
+  return getPendingCalorieBank(uid);
+}
+
+export async function getActiveChallenge(uid: string) {
+  return getActiveCalorieBank(uid);
+}
+
+export async function getChallengeProgress(uid: string, startDate: string, endDate: string) {
+  const active = await getActiveCalorieBank(uid);
+  if (!active) return { total: 0, days: [] };
+  const progress = await getCalorieBankProgress(uid, active.id, startDate, endDate, active.goals?.[uid]?.dailyGoal || 2000);
+  return { total: progress.totalCalories, days: progress.days };
+}
+
+export async function completeChallenge(challengeId: string, results: any) {
+  return completeCalorieBank(challengeId, results);
+}
+
+export async function getPastChallenges(uid: string) {
+  return getPastCalorieBanks(uid);
+}
+
 export async function toggleAutoRenew(challengeId: string, autoRenew: boolean) {
-  await updateDoc(doc(db, 'challenges', challengeId), { autoRenew });
+  return toggleCalorieBankAutoRenew(challengeId, autoRenew);
 }

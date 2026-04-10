@@ -1,7 +1,7 @@
 import { useState, useContext, useEffect } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, TextInput, Alert, Modal } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
-import { getPartnerData, findUserByCode, pairPartners, listenToDayLog, getTodaysMeals } from '../../services/database';
+import { getPartnerData, findUserByCode, pairPartners, listenToDayLog, getDailyLogHistory } from '../../services/database';
 import { getUserProfile } from '../../services/auth';
 import { getPartnerPushToken, sendNudgeNotification } from '../../services/notifications';
 
@@ -172,6 +172,8 @@ export default function PartnerScreen() {
   const [showNudge, setShowNudge] = useState(false);
   const [nudgeSent, setNudgeSent] = useState(false);
   const [customMsg, setCustomMsg] = useState('');
+  const [yourWeekStats, setYourWeekStats] = useState({ avgCal: 0, avgProtein: 0, daysHit: 0 });
+  const [partnerWeekStats, setPartnerWeekStats] = useState({ avgCal: 0, avgProtein: 0, daysHit: 0 });
 
   const loadPartner = async () => {
     if (!profile?.partnerId) {
@@ -202,6 +204,66 @@ export default function PartnerScreen() {
     });
     return () => unsubscribe();
   }, [profile?.partnerId]);
+
+  useEffect(() => {
+    if (!user?.uid || !profile?.partnerId) return;
+    (async () => {
+      try {
+        const [yourHistory, partnerHistory] = await Promise.all([
+          getDailyLogHistory(user.uid, 14),
+          getDailyLogHistory(profile.partnerId, 14),
+        ]);
+        const end = new Date();
+        const yourWeek: any[] = [];
+        const pWeek: any[] = [];
+
+        for (let i = 6; i >= 0; i--) {
+          const d = new Date(end);
+          d.setDate(d.getDate() - i);
+          const dateStr = d.toISOString().split('T')[0];
+          yourWeek.push(yourHistory[dateStr] || {});
+          pWeek.push(partnerHistory[dateStr] || {});
+        }
+
+        const yourDaysWithData = yourWeek.filter(d => (d.totalCalories || 0) > 0);
+        const pDaysWithData = pWeek.filter(d => (d.totalCalories || 0) > 0);
+        const yourGoal = profile?.calorieGoal || 2000;
+        const pGoal = partner?.calorieGoal || 1800;
+
+        setYourWeekStats({
+          avgCal: yourDaysWithData.length > 0
+            ? Math.round(yourDaysWithData.reduce((s, d) => s + (d.totalCalories || 0), 0) / yourDaysWithData.length)
+            : 0,
+          avgProtein: yourDaysWithData.length > 0
+            ? Math.round(yourDaysWithData.reduce((s, d) => s + (d.totalProtein || 0), 0) / yourDaysWithData.length)
+            : 0,
+          daysHit: yourWeek.filter(d => {
+            const cal = d.totalCalories || 0;
+            if (!cal) return false;
+            const ratio = cal / yourGoal;
+            return ratio >= 0.95 && ratio <= 1.1;
+          }).length,
+        });
+
+        setPartnerWeekStats({
+          avgCal: pDaysWithData.length > 0
+            ? Math.round(pDaysWithData.reduce((s, d) => s + (d.totalCalories || 0), 0) / pDaysWithData.length)
+            : 0,
+          avgProtein: pDaysWithData.length > 0
+            ? Math.round(pDaysWithData.reduce((s, d) => s + (d.totalProtein || 0), 0) / pDaysWithData.length)
+            : 0,
+          daysHit: pWeek.filter(d => {
+            const cal = d.totalCalories || 0;
+            if (!cal) return false;
+            const ratio = cal / pGoal;
+            return ratio >= 0.95 && ratio <= 1.1;
+          }).length,
+        });
+      } catch (err) {
+        console.error('Error loading partner report:', err);
+      }
+    })();
+  }, [user?.uid, profile?.partnerId, profile?.calorieGoal, partner?.calorieGoal]);
 
   const handlePaired = async () => {
     const updated = await getUserProfile(user.uid);
@@ -347,6 +409,64 @@ export default function PartnerScreen() {
               ))
             )}
           </View>
+        </View>
+
+        {/* Partner report moved from report tab */}
+        <View style={{
+          marginHorizontal: 24, marginTop: 16, backgroundColor: 'white',
+          borderRadius: 20, padding: 20,
+          shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.04, shadowRadius: 3,
+        }}>
+          <Text style={{ fontSize: 14, fontWeight: '600', color: '#999', marginBottom: 16 }}>
+            Weekly partner report
+          </Text>
+
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <View style={{
+                width: 28, height: 28, borderRadius: 8, backgroundColor: '#7BA876',
+                justifyContent: 'center', alignItems: 'center',
+              }}>
+                <Text style={{ color: 'white', fontWeight: '700', fontSize: 12 }}>{profile?.name?.charAt(0)}</Text>
+              </View>
+              <Text style={{ fontSize: 13, fontWeight: '600' }}>{profile?.name}</Text>
+            </View>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <Text style={{ fontSize: 13, fontWeight: '600' }}>{partner?.name}</Text>
+              <View style={{
+                width: 28, height: 28, borderRadius: 8, backgroundColor: '#8BA4D4',
+                justifyContent: 'center', alignItems: 'center',
+              }}>
+                <Text style={{ color: 'white', fontWeight: '700', fontSize: 12 }}>{partner?.name?.charAt(0)}</Text>
+              </View>
+            </View>
+          </View>
+
+          {[
+            { label: 'Avg daily cal', u: yourWeekStats.avgCal, p: partnerWeekStats.avgCal, fmt: (v: number) => `${v}` },
+            { label: 'Days on target', u: yourWeekStats.daysHit, p: partnerWeekStats.daysHit, fmt: (v: number) => `${v}/7` },
+            { label: 'Avg protein', u: yourWeekStats.avgProtein, p: partnerWeekStats.avgProtein, fmt: (v: number) => `${v}g` },
+          ].map((row, i) => (
+            <View key={row.label} style={{
+              flexDirection: 'row', alignItems: 'center', paddingVertical: 12,
+              borderTopWidth: i > 0 ? 1 : 0, borderTopColor: '#F0F0EE',
+            }}>
+              <Text style={{
+                flex: 1, fontSize: 16, fontWeight: '700',
+                color: row.u >= row.p && row.u > 0 ? '#7BA876' : '#2D2D2D',
+              }}>{row.fmt(row.u)}</Text>
+              <View style={{
+                backgroundColor: '#F5F5F3', paddingHorizontal: 10, paddingVertical: 4,
+                borderRadius: 6, minWidth: 100, alignItems: 'center',
+              }}>
+                <Text style={{ fontSize: 12, color: '#999', fontWeight: '500' }}>{row.label}</Text>
+              </View>
+              <Text style={{
+                flex: 1, fontSize: 16, fontWeight: '700', textAlign: 'right',
+                color: row.p > row.u && row.p > 0 ? '#8BA4D4' : '#2D2D2D',
+              }}>{row.fmt(row.p)}</Text>
+            </View>
+          ))}
         </View>
       </ScrollView>
 

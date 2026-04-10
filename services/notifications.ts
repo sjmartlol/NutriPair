@@ -68,10 +68,10 @@ export async function getPartnerPushToken(partnerId: string): Promise<string | n
   return null;
 }
 
-export async function sendChallengeInvite(
+export async function sendCalorieBankInvite(
   partnerPushToken: string,
   senderName: string,
-  cheatDay: string
+  targetDay: string
 ) {
   try {
     const response = await fetch('https://exp.host/--/api/v2/push/send', {
@@ -79,16 +79,24 @@ export async function sendChallengeInvite(
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         to: partnerPushToken,
-        title: `${senderName} challenged you!`,
-        body: `Accept the challenge and earn your cheat meal on ${cheatDay}!`,
+        title: `${senderName} invited you to Calorie Bank`,
+        body: `Accept and bank calories together toward ${targetDay}.`,
         sound: 'default',
-        data: { type: 'challenge_invite', sender: senderName },
+        data: { type: 'calorie_bank_invite', sender: senderName },
       }),
     });
     return await response.json();
   } catch (error) {
     console.error('Error sending challenge invite:', error);
   }
+}
+
+export async function sendChallengeInvite(
+  partnerPushToken: string,
+  senderName: string,
+  cheatDay: string
+) {
+  return sendCalorieBankInvite(partnerPushToken, senderName, cheatDay);
 }
 
 // Send a nudge notification via Expo's push service

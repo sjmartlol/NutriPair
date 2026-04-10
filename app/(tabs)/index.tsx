@@ -1,9 +1,21 @@
-import { useContext, useState, useEffect } from 'react';
+import { useContext, useState, useEffect, useCallback } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, Modal, TextInput, Alert, KeyboardAvoidingView, Platform } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
-import { logOut, getUserProfile } from '../../services/auth';
-import { updateGoals, getTodaysMeals, deleteMeal, updateMealEntry, getTodayLog, addCustomFood, getDailyLogHistory, calculateStreak } from '../../services/database';
-import { useRouter } from 'expo-router';
+import { getUserProfile } from '../../services/auth';
+import {
+  updateGoals,
+  getTodaysMeals,
+  deleteMeal,
+  updateMealEntry,
+  getTodayLog,
+  addCustomFood,
+  getDailyLogHistory,
+  calculateStreak,
+  getTodayCalorieGoalOverride,
+  getActiveCalorieBank,
+  clearTodayCalorieGoalOverride,
+} from '../../services/database';
+import { useRouter, useFocusEffect } from 'expo-router';
 
 const { UserContext } = require('../_layout');
 
@@ -208,6 +220,7 @@ export default function HomeScreen() {
   const [todayMeals, setTodayMeals] = useState<any[]>([]);
   const [editingMeal, setEditingMeal] = useState<any>(null);
   const [streak, setStreak] = useState(0);
+  const [todayGoalOverride, setTodayGoalOverride] = useState<number | null>(null);
 
   const now = new Date();
   const greeting = now.getHours() < 12 ? 'Good morning' : now.getHours() < 17 ? 'Good afternoon' : 'Good evening';
@@ -217,7 +230,7 @@ export default function HomeScreen() {
   const protein = todayLog?.totalProtein || 0;
   const carbs = todayLog?.totalCarbs || 0;
   const fat = todayLog?.totalFat || 0;
-  const calGoal = profile?.calorieGoal || 2000;
+  const calGoal = todayGoalOverride || profile?.calorieGoal || 2000;
   const protGoal = profile?.proteinGoal || 150;
   const carbGoal = profile?.carbsGoal || 250;
   const fatGoal = profile?.fatGoal || 65;
@@ -238,6 +251,35 @@ export default function HomeScreen() {
     })();
     return () => { mounted = false; };
   }, [user?.uid, profile?.calorieGoal, todayLog]);
+
+  const refreshTodayGoalOverride = useCallback(async () => {
+    if (!user?.uid) return;
+    const activeBank = await getActiveCalorieBank(user.uid);
+    const override = await getTodayCalorieGoalOverride(user.uid);
+    if (!activeBank || (override?.calorieBankId && override.calorieBankId !== activeBank.id)) {
+      if (override) await clearTodayCalorieGoalOverride(user.uid);
+      setTodayGoalOverride(null);
+      return;
+    }
+    setTodayGoalOverride(override?.calorieGoal || null);
+  }, [user?.uid]);
+
+  useEffect(() => {
+    if (!user?.uid) return;
+    let mounted = true;
+    (async () => {
+      if (!mounted) return;
+      await refreshTodayGoalOverride();
+    })();
+    return () => { mounted = false; };
+  }, [refreshTodayGoalOverride, user?.uid, todayLog]);
+
+  useFocusEffect(
+    useCallback(() => {
+      refreshTodayGoalOverride();
+      return () => {};
+    }, [refreshTodayGoalOverride])
+  );
 
   const loadMeals = async () => {
     const meals = await getTodaysMeals(user.uid);
@@ -340,7 +382,7 @@ export default function HomeScreen() {
             <MacroBar label="Carbs" current={carbs} goal={carbGoal} color="#D4A45A" />
             <MacroBar label="Fat" current={fat} goal={fatGoal} color="#D4845A" />
           </View>
-          <TouchableOpacity onPress={() => router.push('/log')} style={{
+          <TouchableOpacity onPress={() => router.push('/log-meal')} style={{
             marginTop: 24, backgroundColor: '#7BA876', padding: 14,
             borderRadius: 12, alignItems: 'center',
             shadowColor: '#7BA876', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.3, shadowRadius: 8,
@@ -352,7 +394,7 @@ export default function HomeScreen() {
         {/* Today's Meals */}
         {todayMeals.length > 0 && (
           <View style={{ paddingHorizontal: 24, marginTop: 20 }}>
-            <Text style={{ fontSize: 16, fontWeight: '600', marginBottom: 12 }}>Today's meals</Text>
+            <Text style={{ fontSize: 16, fontWeight: '600', marginBottom: 12 }}>Today&apos;s meals</Text>
             <View style={{ backgroundColor: 'white', borderRadius: 16, overflow: 'hidden', shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.04, shadowRadius: 3 }}>
               {todayMeals.map((meal, i) => (
                 <View key={meal.id} style={{
@@ -406,11 +448,6 @@ export default function HomeScreen() {
             <Text style={{ fontSize: 13, color: '#999', marginTop: 2 }}>Current streak</Text>
           </View>
         </View>
-
-        {/* Sign Out */}
-        <TouchableOpacity onPress={() => logOut()} style={{ marginHorizontal: 24, marginTop: 24, padding: 14, borderRadius: 12, alignItems: 'center', borderWidth: 1.5, borderColor: '#E0DED9' }}>
-          <Text style={{ color: '#999', fontWeight: '600' }}>Sign Out</Text>
-        </TouchableOpacity>
       </ScrollView>
 
       <EditGoalsModal visible={showEditGoals} profile={profile} onClose={() => setShowEditGoals(false)} onSave={handleSaveGoals} />

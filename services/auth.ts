@@ -6,6 +6,31 @@ import {
 } from 'firebase/auth';
 import { doc, setDoc, getDoc } from 'firebase/firestore';
 import { auth, db } from '../firebaseConfig';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+const STAY_SIGNED_IN_KEY = 'auth:staySignedIn';
+
+let memoryStaySignedIn: boolean | null = null;
+
+export async function getStaySignedInPreference(): Promise<boolean> {
+  if (memoryStaySignedIn !== null) return memoryStaySignedIn;
+  try {
+    const raw = await AsyncStorage.getItem(STAY_SIGNED_IN_KEY);
+    if (raw === null) return true; // default: enabled
+    return raw === 'true';
+  } catch {
+    return true;
+  }
+}
+
+export async function setStaySignedInPreference(value: boolean): Promise<void> {
+  memoryStaySignedIn = value;
+  try {
+    await AsyncStorage.setItem(STAY_SIGNED_IN_KEY, value ? 'true' : 'false');
+  } catch {
+    // ignore (e.g., storage unavailable)
+  }
+}
 
 export async function signUp(email, password, name, calorieGoal) {
   const userCredential = await createUserWithEmailAndPassword(auth, email, password);

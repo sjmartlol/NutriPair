@@ -20,15 +20,6 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
-        name="log"
-        options={{
-          title: 'Log',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="add-circle" size={size} color={color} />
-          ),
-        }}
-      />
-      <Tabs.Screen
         name="checkin"
         options={{
           title: 'Check-In',
@@ -47,20 +38,11 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
-        name="report"
-        options={{
-          title: 'Report',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="bar-chart" size={size} color={color} />
-          ),
-        }}
-      />
-      <Tabs.Screen
         name="challenge"
         options={{
-          title: 'Challenge',
+          title: 'Cal Bank',
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="trophy" size={size} color={color} />
+            <Ionicons name="wallet" size={size} color={color} />
           ),
         }}
       />
