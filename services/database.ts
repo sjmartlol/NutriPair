@@ -464,8 +464,10 @@ export async function getCalorieBankProgress(
     const cal = data?.totalCalories || 0;
     const hasLogData = !!data && ((data.mealsLogged || 0) > 0 || cal > 0);
     total += cal;
-    // Do not auto-bank a full day from missing/no-log days.
-    const autoBanked = hasLogData ? Math.max(0, dailyGoal - cal) : 0;
+    // Do not auto-bank on the bank start day; banking begins after setup day.
+    // Also do not auto-bank a full day from missing/no-log days.
+    const isStartDay = dateStr === startDate;
+    const autoBanked = !isStartDay && hasLogData ? Math.max(0, dailyGoal - cal) : 0;
     days.push({
       date: dateStr,
       day: new Date(d).toLocaleDateString('en-US', { weekday: 'short' }),
